@@ -44,6 +44,12 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
 
         public long Dislikes { get; init; }
 
+        /// <summary>
+        /// Gets the episode's player page (nhplayer), where playback starts without the site;
+        /// empty if the page had none, null if it was read before the player was kept.
+        /// </summary>
+        public string? PlayerUrl { get; init; }
+
         public DateTimeOffset FetchedAt { get; init; }
     }
 
@@ -256,11 +262,13 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
             UrlEpisode().Match(url) is { Success: true } m && int.TryParse(m.Groups["n"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : null;
 
         /// <summary>
-        /// Gets whether the page is a bot check (Cloudflare's) rather than the site.
+        /// Gets whether the page is a bot check (Cloudflare's) rather than the site. Not the
+        /// script Cloudflare adds to the sites' own pages (<c>challenge-platform/scripts/jsd</c>).
         /// </summary>
         public static bool IsChallenge(string html) =>
             html.Contains("cf-chl", StringComparison.Ordinal)
-            || html.Contains("challenge-platform", StringComparison.Ordinal)
+            || html.Contains("_cf_chl_opt", StringComparison.Ordinal)
+            || html.Contains("challenge-platform/h/", StringComparison.Ordinal)
             || html.Contains("<title>Just a moment", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>

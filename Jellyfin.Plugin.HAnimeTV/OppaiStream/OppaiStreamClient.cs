@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using Jellyfin.Plugin.HAnimeTV.Configuration;
 using Jellyfin.Plugin.HAnimeTV.Hentai;
+using Jellyfin.Plugin.HAnimeTV.HentaiHaven;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
@@ -58,7 +59,10 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
         /// <param name="cacheFile">Where the episodes' pages are kept between restarts; null for nowhere.</param>
         public OppaiStreamClient(IHttpClientFactory httpClientFactory, Func<HentaiSettings> configuration, string? cacheFile, ILogger logger, TimeProvider? time = null)
         {
-            _http = new SiteHttp(httpClientFactory, (message, inner) => inner is null ? new OppaiStreamException(message) : new OppaiStreamException(message, inner));
+            _http = new SiteHttp(
+                httpClientFactory,
+                (message, inner) => inner is null ? new OppaiStreamException(message) : new OppaiStreamException(message, inner),
+                () => configuration().FlareSolverrUrl);
             _configuration = configuration;
             _cacheFile = cacheFile;
             _logger = logger;
@@ -142,11 +146,6 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
         {
             var site = SiteUrl;
             var listing = await ListPageAsync(site, 1, cancellationToken).ConfigureAwait(false);
-            if (listing.Count == 0)
-            {
-                return (0, null);
-            }
-
             var episode = await GetEpisodeAsync(listing[0], site, _time.GetUtcNow(), cancellationToken).ConfigureAwait(false);
             return (listing.Count, ToVideos([episode], site)[0]);
         }
@@ -233,10 +232,6 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
                 var found = await ListPageAsync(site, page, cancellationToken).ConfigureAwait(false);
                 var added = found.Where(l => seen.Add(l.Url)).ToList();
                 listings.AddRange(added);
-                if (page == 1 && found.Count == 0)
-                {
-                    throw new OppaiStreamException($"Found no episodes in {site.Host}'s search; is it oppai.stream?");
-                }
 
                 // A short page is the last; one that only repeats earlier ones too
                 if (found.Count < PageSize || added.Count == 0)
@@ -280,11 +275,23 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
             return result.OfType<OppaiStreamEpisode>().ToList();
         }
 
+        /// <summary>
+        /// Reads a page of the search, asked for as the site's search page (<c>search.php</c>)
+        /// asks for it: with every filter, empty, as a browser rather than a bot, without ads.
+        /// </summary>
+        /// <exception cref="OppaiStreamException">The first page lists no episodes.</exception>
         private async Task<IReadOnlyList<OppaiStreamListing>> ListPageAsync(Uri site, int page, CancellationToken cancellationToken)
         {
-            var url = new Uri(site, "actions/search.php?text=&order=uploaded&page=" + page.ToString(CultureInfo.InvariantCulture) + "&limit=" + PageSize.ToString(CultureInfo.InvariantCulture));
-            var html = await _http.GetPageAsync(url, site, null, cancellationToken, notFoundIsEmpty: page > 1).ConfigureAwait(false);
-            return OppaiStreamPage.Listing(html, url);
+            var url = new Uri(site, "actions/search.php?text=&order=uploaded&page=" + page.ToString(CultureInfo.InvariantCulture)
+                + "&limit=" + PageSize.ToString(CultureInfo.InvariantCulture) + "&genres=&blacklist=&studio=&ibt=0&swa=0");
+            var html = await _http.GetPageAsync(url, new Uri(site, "search.php?a=recent"), null, cancellationToken, notFoundIsEmpty: page > 1, ajax: true).ConfigureAwait(false);
+            var listing = OppaiStreamPage.Listing(html, url);
+            if (page == 1 && listing.Count == 0)
+            {
+                throw new OppaiStreamException($"Found no episodes in {site.Host}'s search; is it oppai.stream? It answered {HentaiHavenPage.Describe(html, url)}");
+            }
+
+            return listing;
         }
 
         private async Task<OppaiStreamEpisode> GetEpisodeAsync(OppaiStreamListing listing, Uri site, DateTimeOffset firstSeen, CancellationToken cancellationToken)

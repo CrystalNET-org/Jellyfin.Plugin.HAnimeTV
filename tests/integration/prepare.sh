@@ -14,9 +14,16 @@ set -eu
 FFMPEG=${FFMPEG:-/usr/lib/jellyfin-ffmpeg/ffmpeg}
 FAKE_HANIME=${FAKE_HANIME:-http://fake-hanime:8080}
 
-mkdir -p "$ROOT/config/plugins/hanime.tv_0.0.0.0" "$ROOT/config/plugins/configurations" \
+mkdir -p "$ROOT/config/plugins/Adult Media_0.1.0.0" "$ROOT/config/plugins/configurations" \
          "$ROOT/cache" "$ROOT/tmp" "$ROOT/logs" "$ROOT/media/images"
-cp "$PLUGIN_DLL" "$ROOT/config/plugins/hanime.tv_0.0.0.0/"
+cp "$PLUGIN_DLL" "$ROOT/config/plugins/Adult Media_0.1.0.0/"
+
+# An older version from before the rename to Adult Media, which Jellyfin keeps as another
+# plugin: the plugin deletes it on start (here without its DLL, so that it does not load)
+mkdir -p "$ROOT/config/plugins/hanime.tv_0.0.5.0"
+cat > "$ROOT/config/plugins/hanime.tv_0.0.5.0/meta.json" <<JSON
+{"guid":"1029189a-8a81-4419-8b08-78eb68071a0d","name":"hanime.tv","version":"0.0.5.0","targetAbi":"10.11.0.0","status":"Active","autoUpdate":true,"assemblies":[]}
+JSON
 
 # No users are selected yet: check.py creates them and selects them. The hanime.tv settings
 # are those of version 0.1, which kept them at the top level: the plugin moves them into

@@ -21,8 +21,8 @@ Everything plays through Jellyfin on every client.
 - **One hentai catalog from three sites:** series with the same name are one series, whichever
   site they come from; an episode several sites have comes from hanime.tv, else oppai.stream,
   else Hentai Haven. Each site can be turned off.
-- **Subtitles and 4K from oppai.stream:** its subtitles are saved next to the episodes (or
-  offered by the channel), and its streams play in up to 4K.
+- **Subtitles from oppai.stream:** its subtitles are saved next to the episodes (or offered by
+  the channel); its episodes play as MP4 in up to 1080p.
 - **Only for selected users, per provider:** a provider's library or channel is invisible to
   everyone else, administrators included, through Jellyfin's own channel and library access.
   A new installation selects nobody.
@@ -52,8 +52,9 @@ A provider's settings, with its user selection and the access Jellyfin grants ea
 - The sites reachable from the Jellyfin server:
   - hanime.tv refuses many datacenter and VPN addresses (HTTP 403 in *Test*); a server at home
     usually works. Otherwise, point its endpoints under *Advanced* at a relay.
-  - oppai.stream and Hentai Haven may answer servers they take for bots with a Cloudflare
-    check, which *Test* reports.
+  - oppai.stream and Hentai Haven sit behind Cloudflare, which may answer servers it takes for
+    bots with a check, which *Test* reports. A [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr)
+    gets past it (see *Troubleshooting*).
   - Pornhub blocks some countries and may refuse servers it takes for bots (HTTP 403 or 451 in
     *Test*).
 
@@ -71,7 +72,8 @@ A provider's settings, with its user selection and the access Jellyfin grants ea
 
 In library mode, the plugin then writes the library's files, creates the **Hentai** shows
 library and has Jellyfin scan it. The first sync reads every oppai.stream and Hentai Haven
-episode page once, which takes a few minutes; later syncs only read new episodes. With all three
+episode page once, which takes a few minutes (for Hentai Haven, about half an hour); later syncs
+only read new episodes. With all three
 catalogs (several thousand episodes) the first scan takes a few minutes too.
 
 To install without the catalog, extract a
@@ -116,6 +118,7 @@ Pornhub videos that only have MP4 files are served as files, with ranges for see
 | --- | --- | --- | --- |
 | Hentai | Show as | Shows library | Library, channel, or off. |
 | Hentai | Sources | all | hanime.tv, oppai.stream and Hentai Haven, with the addresses of the last two. |
+| Hentai | FlareSolverr address | empty | Optional, e.g. `http://flaresolverr:8191`: reads the pages Cloudflare refuses. |
 | Hentai | Users | nobody | Who sees the library or channel and can play its videos. |
 | Hentai | Hidden genres | none | Genres whose videos are left out, separated by commas. |
 | Hentai | Leave out censored videos | off | |
@@ -183,8 +186,15 @@ videos through your server, and users who can see a provider can read it.
   datacenters and VPNs. Run Jellyfin from another network, or for hanime.tv use a relay
   (*Advanced*).
 - **oppai.stream or Hentai Haven answers with a bot check:** Cloudflare does not let the server
-  in. Turn the site off, or run Jellyfin from another network; the library keeps the other
-  sites' videos.
+  in. Hentai Haven's episode pages are read at most two per second to avoid it; when it comes
+  anyway, the sync stops reading them, keeps what it has and reads on at the next sync, and
+  episodes play through the player saved during the sync without the site. If the check stays,
+  run [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) (e.g. the
+  `ghcr.io/flaresolverr/flaresolverr` image) and enter its address under *Hentai → Sources*.
+  It opens the refused pages in a browser; the cookie it gets from Cloudflare then lets Jellyfin
+  in directly, if FlareSolverr's requests come from the same public address as Jellyfin's
+  (e.g. in the same cluster). Otherwise turn the site off: the library keeps the other sites'
+  videos.
 - **Pornhub answers HTTP 451:** Pornhub is not available in the server's country.
 - **The library is empty:** look at the *Status* section: the last sync's error, each source's
   state, or whether the Jellyfin library exists. Jellyfin's log has details (search for
@@ -200,6 +210,8 @@ videos through your server, and users who can see a provider can read it.
 - **An episode is in the wrong series, or a series is split in two:** series come from the
   episode names, and the sites may spell a title differently. Edit the episode's metadata in
   Jellyfin, or report the title.
+- **Both *hanime.tv* and *Adult Media* are listed under *Plugins*, and *Status* does not
+  load:** see *Upgrading from 0.1.x*.
 - **Durations show only after playing:** Jellyfin reads a `.strm` episode's duration when it is
   first played, not during scans, so that scans don't hit the sites thousands of times.
 
@@ -209,6 +221,13 @@ The plugin was called *hanime.tv*. It keeps its id, so it updates in place: its 
 into the *Hentai* provider, which stays a shows library for the same users, in the same folder
 and Jellyfin library, now with oppai.stream's and Hentai Haven's videos added (turn them off
 under *Hentai* to keep hanime.tv only). Pornhub is off until you turn it on.
+
+Jellyfin treats the old and the new name as two plugins, so after the update from 0.1.x it may
+load both: *hanime.tv* and *Adult Media* are listed under *Plugins*, and the *Status* section does
+not load. Since 0.3.1 the plugin deletes the old version when it starts; restart Jellyfin once
+more to unload it. With 0.3.0, delete the `hanime.tv_0.1.…` folder in Jellyfin's `plugins`
+directory and restart. Then check each provider's users under *Adult Media* and save: the old
+version's settings page may have cleared them.
 
 ## Disclaimer
 

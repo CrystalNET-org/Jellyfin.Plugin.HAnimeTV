@@ -23,19 +23,25 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
 
         public void Dispose() => File.Delete(_cacheFile);
 
-        // The site's search: one card per episode, newest first
+        // The site's search (actions/search.php): one card per episode, newest first, the title
+        // split into the series and the episode's number
         internal static string Search(params (string Name, int Episode)[] episodes) =>
-            "<html><body><div class=\"episodes\">"
+            "<div style=\"position:absolute;opacity:0;\" id=\"amount-full\" amo=\"1883\"></div>"
             + string.Concat(episodes.Select(e =>
                 $"""
-                <div class="episode-shown" data-n="{e.Name}">
-                  <div class="ep-in"><a href="#" exur="{Site}watch?e={e.Name} {e.Episode}&f=x{e.Episode}">
-                    <img class="cover-img-in" src="{Site}thumbs/{e.Name.Replace(' ', '-')}-{e.Episode}.jpg">
-                    <div class="title-ep"><h5>{e.Name} {e.Episode}</h5></div>
-                  </a></div>
+                <div class="in-grid episode-shown" id="1-{e.Episode}" idgt="1" folder="{e.Name}" ep="{e.Episode}" tags="4k,Censored" name="{e.Name}" desc="About it">
+                    <div class="in-main-gr" just-check="1"><a href="{Site}watch?e={e.Name} {e.Episode}&amp;f=x{e.Episode}">
+                        <div class="cover-img">
+                            <img class="aspect" src="{Site}assets/aspect.png">
+                            <img class="cover-img-in" src="{Site}thumbs/{e.Name.Replace(' ', '-')}-{e.Episode}.jpg" id="cover-1" alt="thumbnail">
+                            <div class="tags-video"><h6 class="fh-tag white">4k</h6></div>
+                        </div>
+                        <div class="wrap-ep-info">
+                            <object><h6 class="gray extra-line">By <a href="{Site}search?studio=Nur" class="gray">Nur</a></h6></object><h5 class="white bold title-ep"><font class="title inline">{WebUtility.HtmlEncode(e.Name)}</font> <font class="ep inline">{e.Episode}</font></h5>
+                        </div>
+                    </a></div>
                 </div>
-                """))
-            + "</div></body></html>";
+                """));
 
         internal static string EpisodePage(string name, int episode, bool hls = false, bool subtitles = true) =>
             $$"""
@@ -73,7 +79,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             var url = request.RequestUri!.AbsoluteUri;
             string? body = url switch
             {
-                Site + "actions/search.php?text=&order=uploaded&page=1&limit=36" => Search(("Ane no Show", 2), ("Other Show", 1), ("Ane no Show", 1)),
+                Site + "actions/search.php?text=&order=uploaded&page=1&limit=36&genres=&blacklist=&studio=&ibt=0&swa=0" => Search(("Ane no Show", 2), ("Other Show", 1), ("Ane no Show", 1)),
                 Site + "watch?e=Ane%20no%20Show%202&f=x2" => EpisodePage("Ane no Show", 2),
                 Site + "watch?e=Ane%20no%20Show%201&f=x1" => EpisodePage("Ane no Show", 1, subtitles: false),
                 Site + "watch?e=Other%20Show%201&f=x1" => EpisodePage("Other Show", 1, hls: true),
@@ -199,6 +205,27 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             var error = await Assert.ThrowsAsync<OppaiStreamException>(() => Create().GetCatalogAsync(CancellationToken.None));
 
             Assert.Contains("Found no episodes", error.Message);
+            Assert.Contains("It answered 20 characters", error.Message);
+        }
+
+        [Fact]
+        public async Task GetCatalog_AsksForTheSearchAsTheSitesSearchPage()
+        {
+            await Create().GetCatalogAsync(CancellationToken.None);
+
+            var search = _requests.First(r => r.RequestUri!.AbsolutePath == "/actions/search.php");
+            Assert.Equal("XMLHttpRequest", search.Headers.GetValues("X-Requested-With").Single());
+            Assert.Equal(Site + "search.php?a=recent", search.Headers.Referrer?.AbsoluteUri);
+            Assert.Contains("&ibt=0&", search.RequestUri!.Query, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void Streams_PreferMp4ToWebm()
+        {
+            // As the site has them: 4K only as WebM
+            var streams = OppaiStreamPage.Streams("""<script>var availableres = {"720":"https:\/\/cdn.test\/720\/E04.mp4","1080":"https:\/\/cdn.test\/1080\/E04.mp4","4k":"https:\/\/cdn.test\/4k\/E04.webm"};</script>""", new Uri(Site));
+
+            Assert.Equal(new[] { "1080p", "720p", "2160p" }, streams.Select(s => s.Label));
         }
 
         [Fact]

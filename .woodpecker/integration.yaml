@@ -82,5 +82,5 @@ steps:
     environment:
       JELLYFIN_URL: http://jellyfin:8096
     commands:
-      - export LOG_DIR=$${CI_WORKSPACE}/.integration/logs LIBRARY_DIR=$${CI_WORKSPACE}/.integration/library JELLYFIN_LOG_DIR=$${CI_WORKSPACE}/.integration/config/log
+      - export LOG_DIR=$${CI_WORKSPACE}/.integration/logs LIBRARY_DIR=$${CI_WORKSPACE}/.integration/library JELLYFIN_LOG_DIR=$${CI_WORKSPACE}/.integration/config/log PLUGINS_DIR=$${CI_WORKSPACE}/.integration/config/plugins
       - python3 tests/integration/check.py || { echo "--- Jellyfin log"; tail -n 200 .integration/config/log/*.log; exit 1; }

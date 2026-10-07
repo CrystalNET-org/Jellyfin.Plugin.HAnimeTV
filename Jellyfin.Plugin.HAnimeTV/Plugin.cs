@@ -3,6 +3,7 @@ using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.HAnimeTV
 {
@@ -16,10 +17,20 @@ namespace Jellyfin.Plugin.HAnimeTV
     /// </remarks>
     public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
-        public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer)
+        public Plugin(IApplicationPaths applicationPaths, IXmlSerializer xmlSerializer, ILogger<Plugin> logger)
             : base(applicationPaths, xmlSerializer)
         {
             Instance = this;
+            // A version from before the rename to "Adult Media" would load beside this one
+            try
+            {
+                PluginCleanup.RemoveOlderVersions(applicationPaths.PluginsPath, Id, Name, Path.GetDirectoryName(AssemblyFilePath)!, Version, logger);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Adult Media: could not look for old versions of the plugin");
+            }
+
             if (Configuration.MigrateLegacySettings())
             {
                 SaveConfiguration();

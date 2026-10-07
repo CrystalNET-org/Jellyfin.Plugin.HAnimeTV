@@ -81,10 +81,16 @@ SUBTITLE = "WEBVTT\n\n00:00:01.000 --> 00:00:05.000\nHello from oppai.stream\n"
 
 
 def oppai_search():
+    # As actions/search.php answers the site's search page: cards whose title is split into
+    # the series and the episode's number
     cards = "".join(f"""
-      <div class="episode-shown"><div class="in"><a href="#" exur="{OPPAI}/watch?e={name} {n}&f={n}">
-        <img class="cover-img-in" src="{BASE}/images/cover.jpg"><div class="title-ep">{name} {n}</div></a></div></div>""" for name, n in OPPAI_EPISODES)
-    return f"<html><body>{cards}</body></html>"
+      <div class="in-grid episode-shown" idgt="{i}" folder="{name}" ep="{n}" name="{name}">
+        <div class="in-main-gr" just-check="1"><a href="{OPPAI}/watch?e={name} {n}&amp;f={n}">
+          <div class="cover-img"><img class="cover-img-in" src="{BASE}/images/cover.jpg"></div>
+          <div class="wrap-ep-info"><object><h6 class="gray extra-line">By <a href="{OPPAI}/search?studio=Nur" class="gray">Nur</a></h6></object><h5 class="white bold title-ep"><font class="title inline">{name}</font> <font class="ep inline">{n}</font></h5></div>
+        </a></div>
+      </div>""" for i, (name, n) in enumerate(OPPAI_EPISODES))
+    return f'<div style="position:absolute;opacity:0;" id="amount-full" amo="{len(OPPAI_EPISODES)}"></div>{cards}'
 
 
 def oppai_episode(name, n):
@@ -244,7 +250,7 @@ class Handler(BaseHTTPRequestHandler):
 
         # oppai.stream
         if path == "/oppai/actions/search.php":
-            self.log(status=200, kind="oppai-search")
+            self.log(status=200, kind="oppai-search", ajax=self.headers.get("X-Requested-With", ""), ibt=query.get("ibt", [""])[0])
             return self.reply(200, (oppai_search() if query.get("page") == ["1"] else "<html></html>").encode(), html)
         if path == "/oppai/watch":
             name, _, n = query.get("e", [""])[0].rpartition(" ")

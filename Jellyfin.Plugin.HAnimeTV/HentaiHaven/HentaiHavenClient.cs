@@ -27,9 +27,14 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
     /// </summary>
     /// <remarks>
     /// The catalog is the home page's list of every episode, newest first (<c>?page=N</c>), and
-    /// each episode's page for its details. Episode pages are kept on disk and read once
-    /// (again after 30 days), so a sync reads the list and what is new. The videos are on a
-    /// separate host (nhplayer), whose player page carries each video's address.
+    /// each episode's page for its details and its player. Episode pages are kept on disk and
+    /// read once (again after 30 days), so a sync reads the list and what is new. The videos are
+    /// on a separate host (nhplayer), whose player page carries each video's address.
+    ///
+    /// The site sits behind Cloudflare, which answers with a bot check when it is read too
+    /// fast: pages are read at most two per second, a crawl stops at the first bot check (the
+    /// next sync reads on), and playback goes to the player known from the crawl without the
+    /// site.
     /// </remarks>
     public sealed class HentaiHavenClient
     {
@@ -38,6 +43,8 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
 
         private static readonly TimeSpan EpisodeMaxAge = TimeSpan.FromDays(30);
         private static readonly TimeSpan StreamCacheTime = TimeSpan.FromMinutes(10);
+
+        private static readonly TimeSpan DefaultRequestInterval = TimeSpan.FromMilliseconds(500);
 
         private readonly SiteHttp _http;
         private readonly Func<HentaiSettings> _configuration;
@@ -55,9 +62,14 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
         private Catalog? _catalog;
 
         /// <param name="cacheFile">Where the episodes' pages are kept between restarts; null for nowhere.</param>
-        public HentaiHavenClient(IHttpClientFactory httpClientFactory, Func<HentaiSettings> configuration, string? cacheFile, ILogger logger, TimeProvider? time = null)
+        /// <param name="requestInterval">The least time between two pages' requests; half a second by default.</param>
+        public HentaiHavenClient(IHttpClientFactory httpClientFactory, Func<HentaiSettings> configuration, string? cacheFile, ILogger logger, TimeProvider? time = null, TimeSpan? requestInterval = null)
         {
-            _http = new SiteHttp(httpClientFactory, (message, inner) => inner is null ? new HentaiHavenException(message) : new HentaiHavenException(message, inner));
+            _http = new SiteHttp(
+                httpClientFactory,
+                (message, inner) => inner is null ? new HentaiHavenException(message) : new HentaiHavenException(message, inner),
+                () => configuration().FlareSolverrUrl,
+                requestInterval ?? DefaultRequestInterval);
             _configuration = configuration;
             _cacheFile = cacheFile;
             _logger = logger;
@@ -164,14 +176,31 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
                 return cached.Streams;
             }
 
-            var html = await _http.GetPageAsync(page, SiteUrl, null, cancellationToken).ConfigureAwait(false);
-            var player = HentaiHavenPage.Episode(html, page).Player
-                ?? throw new HentaiHavenException("The episode's page has no player; " + SiteUrl.Host + " answered " + HentaiHavenPage.Describe(html, page));
+            // The player known from the crawl, without the site; else the one on the episode's page
+            IReadOnlyList<HentaiHavenStream> streams = [];
+            if (KnownPlayer(page) is { } known)
+            {
+                try
+                {
+                    streams = await GetPlayerStreamsAsync(known, page, cancellationToken).ConfigureAwait(false);
+                }
+                catch (HentaiHavenException ex)
+                {
+                    _logger.LogDebug("Hentai Haven: the known player {Player} failed, reading the episode's page: {Error}", known, ex.Message);
+                }
+            }
 
-            var streams = await GetPlayerStreamsAsync(player, page, cancellationToken).ConfigureAwait(false);
             if (streams.Count == 0)
             {
-                throw new HentaiHavenException($"The player at {player.Host} has no video for the episode");
+                var html = await _http.GetPageAsync(page, SiteUrl, null, cancellationToken).ConfigureAwait(false);
+                var player = HentaiHavenPage.Episode(html, page).Player
+                    ?? throw new HentaiHavenException("The episode's page has no player; " + SiteUrl.Host + " answered " + HentaiHavenPage.Describe(html, page));
+
+                streams = await GetPlayerStreamsAsync(player, page, cancellationToken).ConfigureAwait(false);
+                if (streams.Count == 0)
+                {
+                    throw new HentaiHavenException($"The player at {player.Host} has no video for the episode");
+                }
             }
 
             foreach (var stream in streams)
@@ -293,41 +322,65 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
             var listings = pages.SelectMany(p => p).DistinctBy(l => l.Url).ToList();
             var known = previous.GroupBy(e => e.Url, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
             var now = _time.GetUtcNow();
-            var result = new HentaiHavenEpisode?[listings.Count];
+
+            // Episodes keep their last read until their page is read again; those read before
+            // their player was kept are read again
+            var result = listings.Select(l => known.GetValueOrDefault(l.Url)).ToArray();
+            var toRead = listings.Select((listing, index) => (listing, index))
+                .Where(item => result[item.index] is not { } cached || now - cached.FetchedAt >= EpisodeMaxAge || cached.PlayerUrl is null)
+                .ToList();
             var read = 0;
             var failed = 0;
-            await Parallel.ForEachAsync(
-                listings.Select((listing, index) => (listing, index)),
-                new ParallelOptions { MaxDegreeOfParallelism = Parallelism, CancellationToken = cancellationToken },
-                async (item, token) =>
-                {
-                    var (listing, index) = item;
-                    known.TryGetValue(listing.Url, out var cached);
-                    if (cached is not null && now - cached.FetchedAt < EpisodeMaxAge)
-                    {
-                        result[index] = cached;
-                        return;
-                    }
-
-                    try
-                    {
-                        result[index] = await GetEpisodeAsync(listing, site, token).ConfigureAwait(false);
-                        Interlocked.Increment(ref read);
-                    }
-                    catch (HentaiHavenException ex)
-                    {
-                        // One missing page does not fail the catalog: the episode keeps its last
-                        // read, or waits for the next sync
-                        _logger.LogDebug("Hentai Haven: could not read {Url}: {Error}", listing.Url, ex.Message);
-                        result[index] = cached;
-                        Interlocked.Increment(ref failed);
-                    }
-                }).ConfigureAwait(false);
-
-            _logger.LogInformation("Hentai Haven: {Episodes} episodes listed, {Read} episode pages read, {Failed} failed", listings.Count, read, failed);
-            if (failed > 0 && result.All(e => e is null))
+            HentaiHavenException? challenge = null;
+            using var stop = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            try
             {
-                throw new HentaiHavenException($"Could not read any of the {failed} episode pages; see the log");
+                await Parallel.ForEachAsync(
+                    toRead,
+                    new ParallelOptions { MaxDegreeOfParallelism = Parallelism, CancellationToken = stop.Token },
+                    async (item, token) =>
+                    {
+                        if (Volatile.Read(ref challenge) is not null)
+                        {
+                            return;
+                        }
+
+                        try
+                        {
+                            result[item.index] = await GetEpisodeAsync(item.listing, site, token).ConfigureAwait(false);
+                            Interlocked.Increment(ref read);
+                        }
+                        catch (HentaiHavenException ex) when (ex.InnerException is SiteChallengeException)
+                        {
+                            // More requests would only prolong the bot checks: the next sync reads on
+                            Interlocked.CompareExchange(ref challenge, ex, null);
+                            await stop.CancelAsync().ConfigureAwait(false);
+                        }
+                        catch (HentaiHavenException ex)
+                        {
+                            // One missing page does not fail the catalog: the episode keeps its last
+                            // read, or waits for the next sync
+                            _logger.LogDebug("Hentai Haven: could not read {Url}: {Error}", item.listing.Url, ex.Message);
+                            Interlocked.Increment(ref failed);
+                        }
+                    }).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (challenge is not null && !cancellationToken.IsCancellationRequested)
+            {
+            }
+
+            _logger.LogInformation("Hentai Haven: {Episodes} episodes listed, {Read} of {ToRead} episode pages read, {Failed} failed", listings.Count, read, toRead.Count, failed);
+            if (challenge is not null)
+            {
+                _logger.LogWarning(
+                    "Hentai Haven: stopped reading episode pages at Cloudflare's bot check, {Left} are left for the next sync: {Error}",
+                    toRead.Count - read - failed,
+                    challenge.Message);
+            }
+
+            if (result.All(e => e is null) && (challenge is not null || failed > 0))
+            {
+                throw challenge ?? new HentaiHavenException($"Could not read any of the {failed} episode pages; see the log");
             }
 
             return result.OfType<HentaiHavenEpisode>().ToList();
@@ -358,6 +411,8 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
                 Studio = content.Studio,
                 PosterUrl = content.PosterUrl ?? listing.ThumbnailUrl,
                 ThumbnailUrl = content.ThumbnailUrl,
+                // Empty: the page had none (null: read before the player was kept)
+                PlayerUrl = content.Player?.AbsoluteUri ?? string.Empty,
                 ReleasedAt = content.ReleasedAt,
                 UploadedAt = content.UploadedAt,
                 Views = content.Views,
@@ -365,6 +420,27 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
                 Dislikes = content.Dislikes,
                 FetchedAt = _time.GetUtcNow(),
             };
+        }
+
+        /// <summary>
+        /// Gets the player the crawl found on an episode's page.
+        /// </summary>
+        private Uri? KnownPlayer(Uri page)
+        {
+            // After a restart the catalog is on disk; not waiting for a crawl that holds the lock
+            if (_catalog is null && _catalogLock.Wait(0))
+            {
+                try
+                {
+                    _catalog ??= LoadCache();
+                }
+                finally
+                {
+                    _catalogLock.Release();
+                }
+            }
+
+            return _catalog?.Players.GetValueOrDefault(page.AbsoluteUri) is { } player && Uri.TryCreate(player, UriKind.Absolute, out var url) ? url : null;
         }
 
         private Catalog? LoadCache()
@@ -379,7 +455,16 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
             return new Catalog(stored.Site, DateTimeOffset.MinValue, stored.Episodes, ToVideos(stored.Episodes, site));
         }
 
-        private sealed record Catalog(string Site, DateTimeOffset FetchedAt, IReadOnlyList<HentaiHavenEpisode> Episodes, IReadOnlyList<HentaiVideo> Videos);
+        private sealed record Catalog(string Site, DateTimeOffset FetchedAt, IReadOnlyList<HentaiHavenEpisode> Episodes, IReadOnlyList<HentaiVideo> Videos)
+        {
+            /// <summary>
+            /// Gets the episodes' players by their page's address.
+            /// </summary>
+            public IReadOnlyDictionary<string, string> Players { get; } = Episodes
+                .Where(e => !string.IsNullOrEmpty(e.PlayerUrl))
+                .GroupBy(e => e.Url, StringComparer.Ordinal)
+                .ToDictionary(g => g.Key, g => g.First().PlayerUrl!, StringComparer.Ordinal);
+        }
 
         private sealed class StoredCatalog
         {

@@ -1,5 +1,9 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Jellyfin.Plugin.HAnimeTV.HentaiHaven;
 using MediaBrowser.Common.Net;
 using Microsoft.Extensions.Logging;
@@ -7,8 +11,21 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.HAnimeTV.Hentai
 {
     /// <summary>
+    /// The cause of a site's error when the site answered with a bot check.
+    /// </summary>
+    public sealed class SiteChallengeException : Exception
+    {
+        public SiteChallengeException(string host)
+            : base(host + " answered with a bot check")
+        {
+        }
+    }
+
+    /// <summary>
     /// Reads a site's pages as a browser does: its headers, cookies, a retry when the site asks
-    /// for a pause, and a clear error for bot checks. Shared by the sites read from their pages.
+    /// for a pause, at most one request per interval, and Cloudflare's bot checks passed with
+    /// FlareSolverr if it is set up (else a clear error). Shared by the sites read from their
+    /// pages.
     /// </summary>
     internal sealed class SiteHttp
     {
@@ -16,14 +33,34 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
 
         private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
 
+        // FlareSolverr opens the page in a browser and waits for the check to pass
+        private static readonly TimeSpan SolverTimeout = TimeSpan.FromSeconds(60);
+
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly Func<string, Exception?, Exception> _error;
+        private readonly Func<string?> _flareSolverrUrl;
+        private readonly TimeSpan _requestInterval;
+        private readonly Stopwatch _clock = Stopwatch.StartNew();
+        private readonly SemaphoreSlim _paceLock = new(1, 1);
+        private readonly SemaphoreSlim _solverLock = new(1, 1);
+
+        /// <summary>
+        /// The cookies and browser with which FlareSolverr passed a site's check, by host: they
+        /// let later requests in without it while they are valid.
+        /// </summary>
+        private readonly ConcurrentDictionary<string, Clearance> _clearances = new(StringComparer.OrdinalIgnoreCase);
+
+        private TimeSpan _nextRequest;
 
         /// <param name="error">Makes the site's exception from a message and its cause.</param>
-        public SiteHttp(IHttpClientFactory httpClientFactory, Func<string, Exception?, Exception> error)
+        /// <param name="flareSolverrUrl">FlareSolverr's address, if one is set up.</param>
+        /// <param name="requestInterval">The least time between two pages' requests.</param>
+        public SiteHttp(IHttpClientFactory httpClientFactory, Func<string, Exception?, Exception> error, Func<string?>? flareSolverrUrl = null, TimeSpan requestInterval = default)
         {
             _httpClientFactory = httpClientFactory;
             _error = error;
+            _flareSolverrUrl = flareSolverrUrl ?? (() => null);
+            _requestInterval = requestInterval;
         }
 
         /// <summary>
@@ -31,17 +68,27 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
         /// </summary>
         /// <param name="cookies">Cookies to send, and to add those the site sets to; null for none.</param>
         /// <param name="notFoundIsEmpty">Whether a missing page is empty rather than an error.</param>
-        public async Task<string> GetPageAsync(Uri url, Uri? referer, Dictionary<string, string>? cookies, CancellationToken cancellationToken, bool notFoundIsEmpty = false)
+        /// <param name="ajax">Whether to ask as the site's own scripts do (jQuery's <c>$.ajax</c>).</param>
+        public async Task<string> GetPageAsync(Uri url, Uri? referer, Dictionary<string, string>? cookies, CancellationToken cancellationToken, bool notFoundIsEmpty = false, bool ajax = false)
         {
+            var retriedWithClearance = false;
             for (var attempt = 1; ; attempt++)
             {
+                await PaceAsync(cancellationToken).ConfigureAwait(false);
+                _clearances.TryGetValue(url.Host, out var clearance);
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
-                AddBrowserHeaders(request, referer);
-                request.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
-                if (cookies is not null)
+                AddBrowserHeaders(request, referer, clearance?.UserAgent);
+                if (ajax)
                 {
-                    AddCookies(request, cookies);
+                    request.Headers.TryAddWithoutValidation("Accept", "*/*");
+                    request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
                 }
+                else
+                {
+                    request.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                }
+
+                AddCookies(request, cookies, clearance?.Cookies);
 
                 using var response = await SendAsync(request, cancellationToken).ConfigureAwait(false);
                 if (cookies is not null && response.Headers.TryGetValues("Set-Cookie", out var setCookies))
@@ -69,9 +116,45 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
                     return string.Empty;
                 }
 
-                if (HentaiHavenPage.IsChallenge(html))
+                if (IsChallenge(response, html))
                 {
-                    throw _error(url.Host + " answered with a bot check (Cloudflare) instead of the page; it does not let this server in", null);
+                    if (FlareSolverrUri() is not { } solver)
+                    {
+                        throw _error(url.Host + " answered with a bot check (Cloudflare) instead of the page; it does not let this server in. A FlareSolverr address in the settings gets past it", new SiteChallengeException(url.Host));
+                    }
+
+                    await _solverLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        // FlareSolverr passed the check while this request was under way: its cookies may do
+                        if (!retriedWithClearance && _clearances.TryGetValue(url.Host, out var current) && !ReferenceEquals(current, clearance))
+                        {
+                            retriedWithClearance = true;
+                            continue;
+                        }
+
+                        var (status, page) = await SolveAsync(solver, url, cancellationToken).ConfigureAwait(false);
+                        if (status == (int)HttpStatusCode.NotFound && notFoundIsEmpty)
+                        {
+                            return string.Empty;
+                        }
+
+                        if (HentaiHavenPage.IsChallenge(page))
+                        {
+                            throw _error(url.Host + " answered FlareSolverr with a bot check (Cloudflare) too", new SiteChallengeException(url.Host));
+                        }
+
+                        if (status is < 200 or >= 300)
+                        {
+                            throw _error($"{url.Host} answered {status} for {url.AbsolutePath} (through FlareSolverr)", null);
+                        }
+
+                        return page;
+                    }
+                    finally
+                    {
+                        _solverLock.Release();
+                    }
                 }
 
                 if (!response.IsSuccessStatusCode)
@@ -89,17 +172,14 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
         public async Task<string> PostAsync(Uri url, Uri referer, HttpContent content, Dictionary<string, string>? cookies, CancellationToken cancellationToken, bool ajax = true)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
-            AddBrowserHeaders(request, referer);
+            AddBrowserHeaders(request, referer, null);
             request.Headers.TryAddWithoutValidation("Origin", referer.GetLeftPart(UriPartial.Authority));
             if (ajax)
             {
                 request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
             }
 
-            if (cookies is not null)
-            {
-                AddCookies(request, cookies);
-            }
+            AddCookies(request, cookies, null);
 
             using var response = await SendAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
@@ -117,7 +197,9 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
         public async Task<HttpResponseMessage> FetchMediaAsync(Uri url, Uri site, string? range, CancellationToken cancellationToken)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            AddBrowserHeaders(request, site);
+            _clearances.TryGetValue(url.Host, out var clearance);
+            AddBrowserHeaders(request, site, clearance?.UserAgent);
+            AddCookies(request, null, clearance?.Cookies);
             request.Headers.TryAddWithoutValidation("Origin", site.GetLeftPart(UriPartial.Authority));
             if (!string.IsNullOrEmpty(range))
             {
@@ -225,10 +307,109 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
             }
         }
 
-        private static void AddBrowserHeaders(HttpRequestMessage request, Uri? referer)
+        /// <summary>
+        /// Whether an answer is Cloudflare's bot check rather than the page.
+        /// </summary>
+        internal static bool IsChallenge(HttpResponseMessage response, string html) =>
+            (response.Headers.TryGetValues("cf-mitigated", out var mitigated) && mitigated.Contains("challenge", StringComparer.OrdinalIgnoreCase))
+            || (!response.IsSuccessStatusCode && HentaiHavenPage.IsChallenge(html));
+
+        private Uri? FlareSolverrUri()
+        {
+            var configured = _flareSolverrUrl()?.Trim();
+            return string.IsNullOrEmpty(configured) || !Uri.TryCreate(configured.TrimEnd('/') + "/", UriKind.Absolute, out var url) ? null : url;
+        }
+
+        /// <summary>
+        /// Has FlareSolverr open a page and pass the site's check, and keeps its cookies for
+        /// the requests that follow.
+        /// </summary>
+        private async Task<(int Status, string Html)> SolveAsync(Uri solver, Uri url, CancellationToken cancellationToken)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, new Uri(solver, "v1"))
+            {
+                Content = JsonContent.Create(new { cmd = "request.get", url = url.AbsoluteUri, maxTimeout = (int)SolverTimeout.TotalMilliseconds }),
+            };
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(SolverTimeout + RequestTimeout);
+            string body;
+            try
+            {
+                using var response = await _httpClientFactory.CreateClient(NamedClient.Default).SendAsync(request, timeout.Token).ConfigureAwait(false);
+                body = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+            }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw _error($"FlareSolverr did not get {url.AbsoluteUri} within {(SolverTimeout + RequestTimeout).TotalSeconds:0} seconds", ex);
+            }
+            catch (HttpRequestException ex)
+            {
+                throw _error($"Could not reach FlareSolverr at {solver}: {ex.Message}", ex);
+            }
+
+            JsonObject? answer;
+            try
+            {
+                answer = JsonNode.Parse(body) as JsonObject;
+            }
+            catch (JsonException)
+            {
+                answer = null;
+            }
+
+            if (answer?["solution"] is not JsonObject solution || !string.Equals((string?)answer["status"], "ok", StringComparison.OrdinalIgnoreCase))
+            {
+                var message = answer?["message"] is JsonValue m && m.TryGetValue<string>(out var text) ? text : body.Length > 200 ? body[..200] : body;
+                throw _error($"FlareSolverr could not get {url.AbsoluteUri}: {message}", null);
+            }
+
+            var cookies = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var cookie in (solution["cookies"] as JsonArray ?? []).OfType<JsonObject>())
+            {
+                if (cookie["name"] is JsonValue name && name.TryGetValue<string>(out var n) && cookie["value"] is JsonValue value && value.TryGetValue<string>(out var v))
+                {
+                    cookies[n] = v;
+                }
+            }
+
+            var userAgent = solution["userAgent"] is JsonValue ua && ua.TryGetValue<string>(out var agent) && agent.Length > 0 ? agent : UserAgent;
+            _clearances[url.Host] = new Clearance(cookies, userAgent);
+            var status = solution["status"] is JsonValue s && s.TryGetValue<int>(out var code) ? code : 200;
+            var html = solution["response"] is JsonValue r && r.TryGetValue<string>(out var page) ? page : string.Empty;
+            return (status, html);
+        }
+
+        /// <summary>
+        /// Waits until the interval since the last page's request has passed.
+        /// </summary>
+        private async Task PaceAsync(CancellationToken cancellationToken)
+        {
+            if (_requestInterval <= TimeSpan.Zero)
+            {
+                return;
+            }
+
+            await _paceLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var wait = _nextRequest - _clock.Elapsed;
+                if (wait > TimeSpan.Zero)
+                {
+                    await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
+                }
+
+                _nextRequest = _clock.Elapsed + _requestInterval;
+            }
+            finally
+            {
+                _paceLock.Release();
+            }
+        }
+
+        private static void AddBrowserHeaders(HttpRequestMessage request, Uri? referer, string? userAgent)
         {
             request.Headers.UserAgent.Clear();
-            request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
+            request.Headers.TryAddWithoutValidation("User-Agent", userAgent ?? UserAgent);
             request.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.9");
             if (referer is not null)
             {
@@ -236,13 +417,17 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
             }
         }
 
-        private static void AddCookies(HttpRequestMessage request, Dictionary<string, string> cookies)
+        private static void AddCookies(HttpRequestMessage request, Dictionary<string, string>? cookies, IReadOnlyDictionary<string, string>? clearance)
         {
-            if (cookies.Count > 0)
+            var all = (clearance ?? new Dictionary<string, string>()).Concat(cookies ?? new Dictionary<string, string>())
+                .GroupBy(c => c.Key, StringComparer.Ordinal).Select(g => g.Last()).ToList();
+            if (all.Count > 0)
             {
-                request.Headers.TryAddWithoutValidation("Cookie", string.Join("; ", cookies.Select(c => c.Key + "=" + c.Value)));
+                request.Headers.TryAddWithoutValidation("Cookie", string.Join("; ", all.Select(c => c.Key + "=" + c.Value)));
             }
         }
+
+        private sealed record Clearance(IReadOnlyDictionary<string, string> Cookies, string UserAgent);
 
         private static string WithoutWww(string host) => host.StartsWith("www.", StringComparison.OrdinalIgnoreCase) ? host[4..] : host;
     }
