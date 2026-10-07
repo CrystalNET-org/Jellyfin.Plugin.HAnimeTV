@@ -85,16 +85,22 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
         {
             var result = new List<OppaiStreamListing>();
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            var cards = EpisodeShown().Matches(html).Select(m => m.Index).ToList();
+            var cards = EpisodeShown().Matches(html).ToList();
             for (var i = 0; i < cards.Count; i++)
             {
-                var card = html[cards[i]..(i + 1 < cards.Count ? cards[i + 1] : html.Length)];
+                var card = html[cards[i].Index..(i + 1 < cards.Count ? cards[i + 1].Index : html.Length)];
                 if (Link().Match(card) is not { Success: true } link || Link(page, link) is not { } url || !seen.Add(url))
                 {
                     continue;
                 }
 
+                // The heading, else the card's own name="…" ep="…"
                 var title = TitleEp().Match(card) is { Success: true } t ? Text(t.Groups["title"].Value) : null;
+                if (string.IsNullOrWhiteSpace(title) && Attribute(cards[i].Value, "name") is { Length: > 0 } name)
+                {
+                    title = (name + " " + Attribute(cards[i].Value, "ep")).Trim();
+                }
+
                 if (string.IsNullOrWhiteSpace(title))
                 {
                     continue;
@@ -102,6 +108,25 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
 
                 var thumbnail = CoverImage().Match(card) is { Success: true } img ? Absolute(page, Attribute(img.Value, "src") ?? Attribute(img.Value, "data-src") ?? string.Empty) : null;
                 result.Add(new OppaiStreamListing(url, title, thumbnail));
+            }
+
+            if (result.Count > 0)
+            {
+                return result;
+            }
+
+            // No cards as known: the episodes' links, titled by their name in the address
+            // ("Kokuhaku-4"); the episode's page has the real title
+            foreach (Match link in WatchLink().Matches(html))
+            {
+                if (Link(page, link) is { } url && seen.Add(url) && EpisodeName().Match(url) is { Success: true } name)
+                {
+                    var title = Uri.UnescapeDataString(name.Value).Replace('-', ' ').Trim();
+                    if (title.Length > 0)
+                    {
+                        result.Add(new OppaiStreamListing(url, title, null));
+                    }
+                }
             }
 
             return result;
@@ -256,7 +281,7 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
             : int.TryParse(label.Trim().TrimEnd('p', 'P'), NumberStyles.None, CultureInfo.InvariantCulture, out var h) ? h : 0;
 
         private static string? Attribute(string tag, string name) =>
-            Regex.Match(tag, @"\s" + Regex.Escape(name) + @"\s*=\s*([""'])(?<v>.*?)\1", RegexOptions.Singleline | RegexOptions.IgnoreCase) is { Success: true } m
+            Regex.Match(tag, @"\s" + Regex.Escape(name) + @"\s*=\s*(?:([""'])(?<v>.*?)\1|(?<v>[^\s""'>]+))", RegexOptions.Singleline | RegexOptions.IgnoreCase) is { Success: true } m
                 ? WebUtility.HtmlDecode(m.Groups["v"].Value).Trim()
                 : null;
 
@@ -268,30 +293,34 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
                 : null;
         }
 
-        [GeneratedRegex(@"<div\b[^>]*class=""[^""]*\bepisode-shown\b", RegexOptions.IgnoreCase)]
+        // The site writes its attributes in single quotes; a browser saving the page, in double quotes
+        [GeneratedRegex(@"<div\b[^>]*class\s*=\s*[""'][^""']*\bepisode-shown\b[^""']*[""'][^>]*>", RegexOptions.IgnoreCase)]
         private static partial Regex EpisodeShown();
 
         // The card's link: its "exur" (the episode's address the site's script follows), else its href
-        [GeneratedRegex(@"<a\b[^>]*?\b(?:exur)\s*=\s*""(?<href>[^""]+)""|<a\b[^>]*?\bhref\s*=\s*""(?<href>[^""#][^""]*)""", RegexOptions.IgnoreCase)]
+        [GeneratedRegex(@"<a\b[^>]*?\bexur\s*=\s*[""'](?<href>[^""']+)[""']|<a\b[^>]*?\bhref\s*=\s*[""'](?<href>[^""'#][^""']*)[""']", RegexOptions.IgnoreCase)]
         private static partial Regex Link();
 
         // The whole heading: the site splits it into <font class="title">Name</font> <font class="ep">1</font>
-        [GeneratedRegex(@"class=""[^""]*\btitle-ep\b[^""]*""[^>]*>(?<title>.*?)</(?:h\d|div)>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+        [GeneratedRegex(@"class\s*=\s*[""'][^""']*\btitle-ep\b[^""']*[""'][^>]*>(?<title>.*?)</(?:h\d|div)>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
         private static partial Regex TitleEp();
 
-        [GeneratedRegex(@"<img\b[^>]*class=""[^""]*\bcover-img-in\b[^""]*""[^>]*>", RegexOptions.IgnoreCase)]
+        [GeneratedRegex(@"<a\b[^>]*?\bhref\s*=\s*[""'](?<href>[^""']*\bwatch\?e=[^""']+)[""']", RegexOptions.IgnoreCase)]
+        private static partial Regex WatchLink();
+
+        [GeneratedRegex(@"<img\b[^>]*class\s*=\s*[""'][^""']*\bcover-img-in\b[^""']*[""'][^>]*>", RegexOptions.IgnoreCase)]
         private static partial Regex CoverImage();
 
         [GeneratedRegex(@"<h1[^>]*>(?<title>.*?)</h1>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
         private static partial Regex Heading();
 
-        [GeneratedRegex(@"<a\b[^>]*class=""[^""]*\bred\b[^""]*""[^>]*>(?<text>.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+        [GeneratedRegex(@"<a\b[^>]*class\s*=\s*[""'][^""']*\bred\b[^""']*[""'][^>]*>(?<text>.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
         private static partial Regex RedLink();
 
-        [GeneratedRegex(@"<div\b[^>]*class=""[^""]*\bdescription\b[^""]*""[^>]*>(?<content>.*?)</div>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+        [GeneratedRegex(@"<div\b[^>]*class\s*=\s*[""'][^""']*\bdescription\b[^""']*[""'][^>]*>(?<content>.*?)</div>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
         private static partial Regex DescriptionBlock();
 
-        [GeneratedRegex(@"<div\b[^>]*class=""[^""]*\btags\b[^""]*""[^>]*>(?<content>.*?)</div>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+        [GeneratedRegex(@"<div\b[^>]*class\s*=\s*[""'][^""']*\btags\b[^""']*[""'][^>]*>(?<content>.*?)</div>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
         private static partial Regex TagsBlock();
 
         [GeneratedRegex(@"<a\b[^>]*>(?<text>.*?)</a>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]

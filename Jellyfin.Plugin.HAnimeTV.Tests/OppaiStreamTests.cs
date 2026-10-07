@@ -104,6 +104,52 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         }
 
         [Fact]
+        public void Listing_ReadsTheSitesSingleQuotes()
+        {
+            // As the site writes its pages; a browser saves them with double quotes
+            var html = Search(("A & B", 3), ("Other", 1)).Replace('"', '\'');
+
+            var listing = OppaiStreamPage.Listing(html, new Uri(Site + "actions/search.php"));
+
+            Assert.Equal(new[] { "A & B 3", "Other 1" }, listing.Select(l => l.Title));
+            Assert.Equal(Site + "watch?e=A%20%26%20B%203&f=x3", listing[0].Url);
+            Assert.Equal(Site + "thumbs/A-&-B-3.jpg", listing[0].ThumbnailUrl);
+        }
+
+        [Fact]
+        public void Listing_TakesTheTitleFromTheCardWithoutHeading()
+        {
+            var html = "<div class=episodes><div class='in-grid episode-shown' name='Kokuhaku' ep=4><a href='/watch?e=Kokuhaku-4&for=search'><img class='cover-img-in' src='/t.png'></a></div></div>";
+
+            var listing = Assert.Single(OppaiStreamPage.Listing(html, new Uri(Site + "actions/search.php")));
+
+            Assert.Equal("Kokuhaku 4", listing.Title);
+            Assert.Equal(Site + "watch?e=Kokuhaku-4&for=search", listing.Url);
+        }
+
+        [Fact]
+        public void Listing_FallsBackToTheEpisodesLinks()
+        {
+            var html = "<ul><li><a href='https://oppai.test/watch?e=Kokuhaku-4&amp;for=search'><b>?</b></a></li><li><a href='/watch?e=Pure-X-Holic-2&for=search'>x</a></li><li><a href='/search?studio=Nur'>Nur</a></li></ul>";
+
+            var listing = OppaiStreamPage.Listing(html, new Uri(Site + "actions/search.php"));
+
+            Assert.Equal(new[] { "Kokuhaku 4", "Pure X Holic 2" }, listing.Select(l => l.Title));
+            Assert.Equal(Site + "watch?e=Kokuhaku-4&for=search", listing[0].Url);
+        }
+
+        [Fact]
+        public void Episode_ReadsTheSitesSingleQuotes()
+        {
+            var page = OppaiStreamPage.Episode(EpisodePage("Ane no Show", 2).Replace("class=\"", "class='").Replace("\" href", "' href").Replace("\">", "'>"), new Uri(Site + "watch?e=x"));
+
+            Assert.Equal("Ane no Show Ep 2", page.Title);
+            Assert.Equal("Pink Pineapple", page.Studio);
+            Assert.Equal("About Ane no Show & more.", page.Description);
+            Assert.Equal(new[] { "Big Boobs", "Uncensored" }, page.Genres);
+        }
+
+        [Fact]
         public void Episode_ReadsTheMetadataStreamsAndSubtitles()
         {
             var page = OppaiStreamPage.Episode(EpisodePage("Ane no Show", 2), new Uri(Site + "watch?e=x"));
