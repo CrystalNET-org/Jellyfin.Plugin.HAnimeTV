@@ -1,0 +1,82 @@
+# End-to-end test of the plugin in the real Jellyfin image, against a fake hanime.tv
+# (tests/integration/fake-hanime.py) that checks the plugin's signatures and sealed
+# handshake the way hanime.tv does and serves real HLS streams. CI cannot rely on the
+# real site, which refuses datacenter addresses.
+#
+# Catches what unit tests cannot: the channel not being registered, Jellyfin showing it
+# or its videos to users who are not selected, policies not following the selection,
+# playback of the streams through Jellyfin's ffmpeg failing. Releases depend on it
+# (auto_release.yaml), so a plugin that breaks this way is not shipped.
+#
+# All steps share the workspace at the same path.
+when:
+  # Other branches are tested through their pull request: a push there would run
+  # the same commit twice
+  - event: push
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+  - event: [pull_request, manual, tag]
+
+variables:
+  # The Jellyfin release the plugin targets. Not updated by Renovate: move it together
+  # with the Jellyfin packages and TARGET_ABI in release.yaml
+  - &jellyfin harbor.crystalnet.org/dockerhub-proxy/jellyfin/jellyfin:12.2
+
+steps:
+  - name: build
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    # Disk the step writes into its own container (not the workspace volume), so the
+    # scheduler accounts for it and the kubelet does not evict the step first
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            ephemeral-storage: 1Gi
+    commands:
+      - dotnet build -c Release Jellyfin.Plugin.HAnimeTV/Jellyfin.Plugin.HAnimeTV.csproj
+
+  - name: prepare
+    image: *jellyfin
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            ephemeral-storage: 512Mi
+    commands:
+      - ROOT=$${CI_WORKSPACE}/.integration PLUGIN_DLL=Jellyfin.Plugin.HAnimeTV/bin/Release/net10.0/Jellyfin.Plugin.HAnimeTV.dll sh tests/integration/prepare.sh
+
+  - name: fake-hanime
+    image: harbor.crystalnet.org/dockerhub-proxy/library/python:3.14-slim
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            ephemeral-storage: 256Mi
+    detach: true
+    commands:
+      - pip install --quiet --root-user-action=ignore cryptography
+      - export MEDIA_DIR=$${CI_WORKSPACE}/.integration/media LOG_DIR=$${CI_WORKSPACE}/.integration/logs
+      - exec python3 tests/integration/fake-hanime.py
+
+  - name: jellyfin
+    image: *jellyfin
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            ephemeral-storage: 1Gi
+    detach: true
+    commands:
+      - ROOT=$${CI_WORKSPACE}/.integration exec sh tests/integration/start-jellyfin.sh
+
+  - name: check
+    image: harbor.crystalnet.org/dockerhub-proxy/library/python:3.14-slim
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            ephemeral-storage: 256Mi
+    environment:
+      JELLYFIN_URL: http://jellyfin:8096
+    commands:
+      - export LOG_DIR=$${CI_WORKSPACE}/.integration/logs JELLYFIN_LOG_DIR=$${CI_WORKSPACE}/.integration/config/log
+      - python3 tests/integration/check.py || { echo "--- Jellyfin log"; tail -n 200 .integration/config/log/*.log; exit 1; }

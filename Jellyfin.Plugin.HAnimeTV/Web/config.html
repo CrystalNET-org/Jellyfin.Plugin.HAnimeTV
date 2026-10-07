@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>hanime.tv</title>
+</head>
+<body>
+    <div id="hanimeTvConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+         data-require="emby-input,emby-button,emby-checkbox">
+        <div data-role="content">
+        <style>
+            /* Same layout as the gRPC-ffmpeg plugin: header, section navigation on the left,
+               the current section on the right, and a save bar that stays at the bottom */
+            /* Jellyfin clips the page content with overflow: hidden, which makes it a scroll
+               container of its own and keeps the save bar from sticking; clip does not */
+            #hanimeTvConfigPage > [data-role="content"] {
+                overflow: clip;
+            }
+            #hanimeTvConfigPage form.htShell {
+                /* Full width, instead of Jellyfin's narrow column for plugin forms */
+                max-width: none;
+                display: grid;
+                grid-template-columns: 200px minmax(0, 1fr);
+                grid-template-rows: auto 1fr auto;
+                /* Down to the window's bottom edge below Jellyfin's top bar */
+                min-height: calc(100vh - 3.5em);
+            }
+            #hanimeTvConfigPage .htHeader {
+                grid-column: 1 / -1;
+                display: flex;
+                align-items: center;
+                gap: 1em;
+                padding: 0.5em 2em 0.75em;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            #hanimeTvConfigPage .htHeader h2 {
+                margin: 0;
+            }
+            #hanimeTvConfigPage .htChip {
+                font-size: 0.8em;
+                padding: 0.2em 0.7em;
+                border-radius: 1em;
+                background: rgba(255, 255, 255, 0.08);
+                white-space: nowrap;
+            }
+            #hanimeTvConfigPage [data-state="ok"] { color: #8c8; }
+            #hanimeTvConfigPage [data-state="warn"] { color: #fc6; }
+            #hanimeTvConfigPage [data-state="error"] { color: #f77; }
+            #hanimeTvConfigPage .htNav {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+                padding: 0.75em 0.5em;
+                border-right: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            #hanimeTvConfigPage .htNavButton {
+                display: block;
+                width: 100%;
+                text-align: left;
+                padding: 0.65em 1em;
+                border: none;
+                border-radius: 4px;
+                background: transparent;
+                color: inherit;
+                font: inherit;
+                font-size: 0.95em;
+                cursor: pointer;
+            }
+            /* The hidden attribute loses against the display above */
+            #hanimeTvConfigPage .htSection[hidden] {
+                display: none;
+            }
+            #hanimeTvConfigPage .htNavButton:hover {
+                background: rgba(255, 255, 255, 0.05);
+            }
+            #hanimeTvConfigPage .htNavButton.htActive {
+                background: color-mix(in srgb, var(--theme-primary-color, #00a4dc) 15%, transparent);
+                color: var(--theme-primary-color, #00a4dc);
+                font-weight: 600;
+            }
+            #hanimeTvConfigPage .htContent {
+                padding: 1em 2em 2em;
+                min-width: 0;
+            }
+            #hanimeTvConfigPage .htSection > .sectionTitle {
+                margin-top: 0;
+            }
+            #hanimeTvConfigPage .htUsers {
+                display: grid;
+                gap: 0.25em;
+                margin: 1em 0 1.5em;
+            }
+            #hanimeTvConfigPage .htUser {
+                display: flex;
+                align-items: center;
+                gap: 1em;
+                padding: 0.25em 0.75em;
+                border-radius: 4px;
+                background: rgba(255, 255, 255, 0.03);
+            }
+            #hanimeTvConfigPage .htUser .checkboxContainer {
+                margin: 0;
+                flex: 1;
+            }
+            #hanimeTvConfigPage .htUserAccess {
+                font-size: 0.85em;
+                white-space: nowrap;
+            }
+            #hanimeTvConfigPage .htFooter {
+                grid-column: 1 / -1;
+                position: sticky;
+                bottom: 0;
+                z-index: 10;
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                gap: 1em;
+                padding: 0.75em 2em;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+                background: var(--theme-background, #101010);
+            }
+            #hanimeTvConfigPage .htFooterMessage {
+                margin-right: auto;
+                font-size: 0.9em;
+                opacity: 0.8;
+            }
+            #hanimeTvConfigPage .htFooterMessage[data-state] { opacity: 1; }
+            #hanimeTvConfigPage .htFooterMessage[data-state="dirty"] { color: #fc6; }
+            #hanimeTvConfigPage .htFooter .htSave {
+                margin: 0;
+                min-width: 10em;
+            }
+            @media (max-width: 768px) {
+                #hanimeTvConfigPage form.htShell {
+                    grid-template-columns: minmax(0, 1fr);
+                    grid-template-rows: auto auto 1fr auto;
+                }
+                #hanimeTvConfigPage .htHeader,
+                #hanimeTvConfigPage .htContent,
+                #hanimeTvConfigPage .htFooter {
+                    padding-left: 1em;
+                    padding-right: 1em;
+                }
+                #hanimeTvConfigPage .htNav {
+                    flex-direction: row;
+                    overflow-x: auto;
+                    border-right: none;
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+                    white-space: nowrap;
+                }
+                #hanimeTvConfigPage .htNavButton {
+                    width: auto;
+                }
+            }
+        </style>
+            <form class="hanimeTvConfigurationForm htShell">
+                <div class="htHeader">
+                    <h2 class="sectionTitle">hanime.tv</h2>
+                    <span id="htHeaderStatus" class="htChip">Loading…</span>
+                </div>
+
+                <nav class="htNav" aria-label="Settings sections">
+                    <button type="button" class="htNavButton" data-section="status">Status</button>
+                    <button type="button" class="htNavButton" data-section="users">Users</button>
+                    <button type="button" class="htNavButton" data-section="catalog">Catalog</button>
+                    <button type="button" class="htNavButton" data-section="account">Account</button>
+                    <button type="button" class="htNavButton" data-section="advanced">Advanced</button>
+                </nav>
+
+                <div class="htContent">
+                    <section class="htSection" data-section="status">
+                        <h3 class="sectionTitle">Status</h3>
+                        <p>Adds hanime.tv as a channel: its videos, by category, genre, studio and series, play
+                            through Jellyfin. The channel is for adults: only the users selected under
+                            <em>Users</em> see it, nobody else.</p>
+                        <div id="htStatus" class="fieldDescription">Loading…</div>
+                        <div style="margin-top: 1.5em;">
+                            <button is="emby-button" type="button" class="raised block" id="htTest"><span>Test</span></button>
+                        </div>
+                        <div class="fieldDescription">Downloads the catalog and asks for the streams of the newest video, with the settings as entered here, also before saving them.</div>
+                        <div id="htTestResult" class="fieldDescription"></div>
+                    </section>
+
+                    <section class="htSection" data-section="users">
+                        <h3 class="sectionTitle">Users</h3>
+                        <p>Only the selected users see the channel and can play its videos, administrators included.</p>
+                        <div id="htUsers" class="htUsers">Loading…</div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="enforceAccess" />
+                                <span>Enforce through the users' channel access</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                Recommended. Without it the channel is only left out of the others' channel lists and
+                                home screens, while its videos stay reachable for them by id, e.g. through a shared link.
+                                With it, the channel access of every user's policy (Dashboard → Users → Access) follows this
+                                selection, so Jellyfin itself refuses the videos to the others. A user who had access to all
+                                channels and is not selected keeps access to every other channel, now listed one by one: tick
+                                <em>Enable access to all channels</em> again there and the plugin takes this channel out again
+                                within 15 minutes (scheduled task <em>Enforce hanime.tv channel access</em>).
+                            </div>
+                        </div>
+                        <div>
+                            <button is="emby-button" type="button" class="raised block" id="htSync"><span>Apply access now</span></button>
+                        </div>
+                        <div id="htSyncResult" class="fieldDescription"></div>
+                    </section>
+
+                    <section class="htSection" data-section="catalog">
+                        <h3 class="sectionTitle">Catalog</h3>
+                        <div class="inputContainer">
+                            <input type="text" id="hiddenTags" is="emby-input" label="Hidden genres" />
+                            <div class="fieldDescription">hanime.tv tags whose videos are never shown, separated by commas, e.g. <code>loli, shota, scat</code>.</div>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="hideCensored" />
+                                <span>Hide censored videos</span>
+                            </label>
+                        </div>
+                        <div class="inputContainer">
+                            <input type="number" id="maxItemsPerFolder" is="emby-input" label="Videos per folder" min="10" max="2000" />
+                            <div class="fieldDescription">Jellyfin reads a folder's videos all at once and keeps an entry for each, so large folders open slowly. Series always list all their episodes.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input type="number" id="catalogCacheHours" is="emby-input" label="Catalog refresh (hours)" min="1" max="168" />
+                            <div class="fieldDescription">How long the catalog is kept before it is downloaded again. Jellyfin also keeps each folder's listing for 3 hours.</div>
+                        </div>
+                    </section>
+
+                    <section class="htSection" data-section="account">
+                        <h3 class="sectionTitle">hanime.tv account</h3>
+                        <p>Optional. Without an account, videos play in up to 720p; a premium account adds 1080p.</p>
+                        <div class="inputContainer">
+                            <input type="email" id="email" is="emby-input" label="Email" autocomplete="off" />
+                        </div>
+                        <div class="inputContainer">
+                            <input type="password" id="password" is="emby-input" label="Password" autocomplete="new-password" />
+                            <div class="fieldDescription">Stored in the plugin's settings file on the server, readable by administrators. After a failed login, playback continues as a guest and the login is retried after 15 minutes.</div>
+                        </div>
+                    </section>
+
+                    <section class="htSection" data-section="advanced">
+                        <h3 class="sectionTitle">Advanced</h3>
+                        <p>hanime.tv refuses many datacenter and VPN addresses. If the test fails with HTTP 403, point
+                            these at a relay that forwards the requests and their headers unchanged.</p>
+                        <div class="inputContainer">
+                            <input type="url" id="searchUrl" is="emby-input" label="Catalog URL" />
+                        </div>
+                        <div class="inputContainer">
+                            <input type="url" id="handshakeUrl" is="emby-input" label="Stream handshake URL" />
+                        </div>
+                        <div class="inputContainer">
+                            <input type="url" id="loginUrl" is="emby-input" label="Login URL" />
+                        </div>
+                        <div class="inputContainer">
+                            <input type="url" id="streamHost" is="emby-input" label="Stream host" />
+                            <div class="fieldDescription">Relative stream paths from the handshake are resolved against this host.</div>
+                        </div>
+                        <div>
+                            <button is="emby-button" type="button" class="raised button-cancel block" id="htDefaults"><span>Restore the defaults</span></button>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="htFooter">
+                    <span id="htFooterMessage" class="htFooterMessage"></span>
+                    <button is="emby-button" type="submit" class="raised button-submit htSave"><span>Save</span></button>
+                </div>
+            </form>
+        </div>
+        <script type="text/javascript">
+            (function () {
+                'use strict';
+
+                const pluginId = '1029189A-8A81-4419-8B08-78EB68071A0D';
+                const page = document.querySelector('#hanimeTvConfigPage');
+                const $ = (selector) => page.querySelector(selector);
+                // Accept both PascalCase and camelCase JSON
+                const get = (obj, name) => obj[name] !== undefined ? obj[name] : obj[name.charAt(0).toLowerCase() + name.slice(1)];
+                const defaults = {
+                    SearchUrl: 'https://guest.freeanimehentai.net/api/v11/search_hvs',
+                    HandshakeUrl: 'https://auth.hanime.tv/api/v11/handshake',
+                    LoginUrl: 'https://www.universal-cdn.com/rapi/v7/sessions',
+                    StreamHost: 'https://hanime.tv',
+                };
+
+                function escapeHtml(text) {
+                    const div = document.createElement('div');
+                    div.textContent = text == null ? '' : String(text);
+                    return div.innerHTML;
+                }
+
+                function api(method, path, body) {
+                    const request = { type: method, url: ApiClient.getUrl(path), dataType: 'json' };
+                    if (body !== undefined) {
+                        request.data = JSON.stringify(body);
+                        request.contentType = 'application/json';
+                    }
+                    return ApiClient.ajax(request);
+                }
+
+                // One line per entry; Jellyfin's styles collapse line breaks in text
+                function setLines(element, lines) {
+                    element.innerHTML = lines.map(escapeHtml).join('<br>');
+                }
+
+                function formatTime(value) {
+                    return value ? new Date(value).toLocaleString() : 'never';
+                }
+
+                let currentSection = 'status';
+                // Selected users as loaded or ticked, kept while the list is redrawn
+                let selected = new Set();
+
+                function showSection(name) {
+                    currentSection = name;
+                    for (const section of page.querySelectorAll('.htSection')) {
+                        section.hidden = section.getAttribute('data-section') !== name;
+                    }
+                    for (const navButton of page.querySelectorAll('.htNavButton')) {
+                        const active = navButton.getAttribute('data-section') === name;
+                        navButton.classList.toggle('htActive', active);
+                        navButton.setAttribute('aria-current', active ? 'page' : 'false');
+                    }
+                }
+
+                function setFooterMessage(text, state) {
+                    const message = $('#htFooterMessage');
+                    message.textContent = text;
+                    if (state) {
+                        message.setAttribute('data-state', state);
+                    } else {
+                        message.removeAttribute('data-state');
+                    }
+                }
+
+                function renderUsers(users) {
+                    const box = $('#htUsers');
+                    if (!users.length) {
+                        box.textContent = 'No users.';
+                        return;
+                    }
+                    box.innerHTML = users.map(user => {
+                        const id = get(user, 'Id').replace(/-/g, '').toLowerCase();
+                        const grants = get(user, 'PolicyGrantsAccess');
+                        const access = grants
+                            ? '<span data-state="' + (selected.has(id) ? 'ok' : 'warn') + '">Jellyfin grants access</span>'
+                            : '<span data-state="' + (selected.has(id) ? 'warn' : '') + '">No access in Jellyfin</span>';
+                        return '<div class="htUser">'
+                            + '<div class="checkboxContainer"><label>'
+                            + '<input is="emby-checkbox" type="checkbox" class="htUserCheck" data-id="' + escapeHtml(id) + '"' + (selected.has(id) ? ' checked' : '') + ' />'
+                            + '<span>' + escapeHtml(get(user, 'Name')) + (get(user, 'IsAdministrator') ? ' <span class="htChip">Administrator</span>' : '') + '</span>'
+                            + '</label></div>'
+                            + '<span class="htUserAccess">' + access + '</span>'
+                            + '</div>';
+                    }).join('');
+                    for (const check of box.querySelectorAll('.htUserCheck')) {
+                        check.addEventListener('change', () => {
+                            const id = check.getAttribute('data-id');
+                            if (check.checked) {
+                                selected.add(id);
+                            } else {
+                                selected.delete(id);
+                            }
+                            updateHeader(lastStatus);
+                        });
+                    }
+                }
+
+                let lastStatus = {};
+
+                function updateHeader(status) {
+                    const chip = $('#htHeaderStatus');
+                    let text;
+                    let state;
+                    if (get(status, 'CatalogError')) {
+                        text = 'Catalog unavailable';
+                        state = 'error';
+                    } else if (selected.size === 0) {
+                        text = 'No users selected';
+                        state = 'warn';
+                    } else {
+                        text = selected.size === 1 ? '1 user' : selected.size + ' users';
+                        state = 'ok';
+                    }
+                    chip.textContent = text;
+                    chip.setAttribute('data-state', state);
+                }
+
+                function loadStatus() {
+                    return api('GET', 'HanimeTV/Status').then(status => {
+                        lastStatus = status;
+                        const lines = [];
+                        const count = get(status, 'CatalogCount');
+                        lines.push(count == null
+                            ? 'Catalog: not downloaded yet (on first use of the channel)'
+                            : 'Catalog: ' + count + ' videos, downloaded ' + formatTime(get(status, 'CatalogTime')));
+                        if (get(status, 'CatalogError')) {
+                            lines.push('✘ Last download failed: ' + get(status, 'CatalogError'));
+                        }
+                        lines.push('Account: ' + (get(status, 'AccountStatus') || 'none or not used yet (guest, up to 720p)'));
+                        if (get(status, 'EnforceAccess')) {
+                            const changed = get(status, 'LastChanged') || [];
+                            lines.push('Channel access last enforced: ' + formatTime(get(status, 'LastSync'))
+                                + (changed.length ? ' (changed: ' + changed.join(', ') + ')' : ''));
+                        } else {
+                            lines.push('Channel access: not enforced through the users\' policies');
+                        }
+                        setLines($('#htStatus'), lines);
+                        renderUsers(get(status, 'Users') || []);
+                        updateHeader(status);
+                    }).catch(() => {
+                        $('#htStatus').textContent = 'Could not load the status.';
+                    });
+                }
+
+                function loadConfiguration() {
+                    Dashboard.showLoadingMsg();
+                    ApiClient.getPluginConfiguration(pluginId).then(config => {
+                        selected = new Set((config.AllowedUsers || []).map(id => id.replace(/-/g, '').toLowerCase()));
+                        $('#enforceAccess').checked = config.EnforceAccess;
+                        $('#hiddenTags').value = (config.HiddenTags || []).join(', ');
+                        $('#hideCensored').checked = config.HideCensored;
+                        $('#maxItemsPerFolder').value = config.MaxItemsPerFolder || 200;
+                        $('#catalogCacheHours').value = config.CatalogCacheHours || 6;
+                        $('#email').value = config.Email || '';
+                        $('#password').value = config.Password || '';
+                        $('#searchUrl').value = config.SearchUrl || defaults.SearchUrl;
+                        $('#handshakeUrl').value = config.HandshakeUrl || defaults.HandshakeUrl;
+                        $('#loginUrl').value = config.LoginUrl || defaults.LoginUrl;
+                        $('#streamHost').value = config.StreamHost || defaults.StreamHost;
+                        showSection(currentSection);
+                        setFooterMessage('', '');
+                        return loadStatus();
+                    }).finally(() => Dashboard.hideLoadingMsg());
+                }
+
+                // The form's values on top of the saved settings
+                function collectConfiguration(config) {
+                    const toGuid = id => id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+                    config.AllowedUsers = Array.from(selected).map(toGuid);
+                    config.EnforceAccess = $('#enforceAccess').checked;
+                    config.HiddenTags = $('#hiddenTags').value.split(',').map(t => t.trim()).filter(t => t);
+                    config.HideCensored = $('#hideCensored').checked;
+                    config.MaxItemsPerFolder = parseInt($('#maxItemsPerFolder').value, 10) || 200;
+                    config.CatalogCacheHours = parseInt($('#catalogCacheHours').value, 10) || 6;
+                    config.Email = $('#email').value.trim();
+                    config.Password = $('#password').value;
+                    config.SearchUrl = $('#searchUrl').value.trim() || defaults.SearchUrl;
+                    config.HandshakeUrl = $('#handshakeUrl').value.trim() || defaults.HandshakeUrl;
+                    config.LoginUrl = $('#loginUrl').value.trim() || defaults.LoginUrl;
+                    config.StreamHost = $('#streamHost').value.trim() || defaults.StreamHost;
+                    return config;
+                }
+
+                function renderTestResult(result) {
+                    const lines = [];
+                    if (get(result, 'CatalogError')) {
+                        lines.push('✘ Catalog: ' + get(result, 'CatalogError'));
+                    } else {
+                        lines.push('✔ Catalog: ' + get(result, 'CatalogCount') + ' videos');
+                    }
+                    if (get(result, 'TestedVideo')) {
+                        lines.push(get(result, 'StreamError')
+                            ? '✘ Streams of "' + get(result, 'TestedVideo') + '": ' + get(result, 'StreamError')
+                            : '✔ Streams of "' + get(result, 'TestedVideo') + '": ' + (get(result, 'Streams') || []).join(', '));
+                    }
+                    if (get(result, 'AccountStatus')) {
+                        lines.push((get(result, 'AccountStatus').indexOf('failed') >= 0 ? '✘ ' : '✔ ') + 'Account: ' + get(result, 'AccountStatus'));
+                    }
+                    setLines($('#htTestResult'), lines);
+                }
+
+                page.addEventListener('pageshow', loadConfiguration);
+
+                $('.hanimeTvConfigurationForm').addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    const save = page.querySelector('.htSave');
+                    save.disabled = true;
+                    setFooterMessage('Saving…', '');
+                    ApiClient.getPluginConfiguration(pluginId)
+                        .then(config => ApiClient.updatePluginConfiguration(pluginId, collectConfiguration(config)))
+                        .then(result => {
+                            Dashboard.processPluginConfigurationUpdateResult(result);
+                            setFooterMessage('Saved at ' + new Date().toLocaleTimeString(), 'ok');
+                            // The users' access is enforced in the background after saving
+                            setTimeout(loadStatus, 1500);
+                        })
+                        .catch(() => setFooterMessage('Saving failed, see the server log.', 'error'))
+                        .finally(() => { save.disabled = false; });
+                    return false;
+                });
+
+                for (const button of page.querySelectorAll('.htNavButton')) {
+                    button.addEventListener('click', () => showSection(button.getAttribute('data-section')));
+                }
+
+                const form = $('.hanimeTvConfigurationForm');
+                const markDirty = () => setFooterMessage('Unsaved changes', 'dirty');
+                form.addEventListener('input', markDirty);
+                form.addEventListener('change', markDirty);
+
+                $('#htTest').addEventListener('click', function () {
+                    const button = this;
+                    $('#htTestResult').textContent = 'Downloading the catalog and asking for streams…';
+                    button.disabled = true;
+                    ApiClient.getPluginConfiguration(pluginId)
+                        .then(config => api('POST', 'HanimeTV/Test', collectConfiguration(config)))
+                        .then(renderTestResult)
+                        .catch(() => { $('#htTestResult').textContent = '✘ The test could not be run, see the server log.'; })
+                        .finally(() => { button.disabled = false; });
+                });
+
+                $('#htSync').addEventListener('click', function () {
+                    const button = this;
+                    if ($('#htFooterMessage').getAttribute('data-state') === 'dirty') {
+                        $('#htSyncResult').textContent = 'Save first: access is applied for the saved selection.';
+                        return;
+                    }
+                    button.disabled = true;
+                    api('POST', 'HanimeTV/SyncAccess')
+                        .then(result => {
+                            const changed = get(result, 'Changed') || [];
+                            $('#htSyncResult').textContent = changed.length
+                                ? 'Changed the access of ' + changed.join(', ') + '.'
+                                : 'All users\' access already matches the selection.';
+                            return loadStatus();
+                        })
+                        .catch(() => { $('#htSyncResult').textContent = 'Could not apply the access, see the server log.'; })
+                        .finally(() => { button.disabled = false; });
+                });
+
+                $('#htDefaults').addEventListener('click', function () {
+                    $('#searchUrl').value = defaults.SearchUrl;
+                    $('#handshakeUrl').value = defaults.HandshakeUrl;
+                    $('#loginUrl').value = defaults.LoginUrl;
+                    $('#streamHost').value = defaults.StreamHost;
+                    markDirty();
+                });
+            })();
+        </script>
+    </div>
+</body>
+</html>

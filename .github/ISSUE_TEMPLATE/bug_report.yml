@@ -1,0 +1,57 @@
+name: Bug report
+description: Something does not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please click **Test** on the plugin's settings page first: it shows
+        whether hanime.tv's catalog and streams can be reached from your server.
+        Security problems, e.g. users who are not selected reaching the channel: please report them
+        privately, see [SECURITY.md](https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Shown under Dashboard → Plugins
+    validations:
+      required: true
+  - type: input
+    id: jellyfin-version
+    attributes:
+      label: Jellyfin version and installation
+      description: e.g. 12.2, official Docker image
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Client
+      description: e.g. Jellyfin Web in Firefox, Android TV app
+  - type: textarea
+    id: test-result
+    attributes:
+      label: Result of "Test"
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        The relevant lines from Jellyfin's log (search for `hanime.tv` and `HAnimeTV`).
+        Remove your hanime.tv account's email before posting.
+      render: text

@@ -1,0 +1,35 @@
+# Tags a patch release when a push to main changes the Jellyfin packages (e.g. an
+# automerged Renovate update), see scripts/next-release-tag.sh. The release
+# pipeline then publishes the plugin and adds it to manifest.json.
+# Only tag once the build and the integration test (in the real Jellyfin image)
+# of this commit succeeded; a failure skips the tag. The tag can be pushed by
+# hand after fixing it.
+depends_on:
+  - build
+  - integration
+
+when:
+  - event: push
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+    path: Jellyfin.Plugin.HAnimeTV/Jellyfin.Plugin.HAnimeTV.csproj
+
+steps:
+  - name: tag-release
+    image: harbor.crystalnet.org/dockerhub-proxy/alpine/git:v2.54.0
+    # Disk the step writes into its own container (not the workspace volume), so the
+    # scheduler accounts for it and the kubelet does not evict the step first
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            ephemeral-storage: 256Mi
+    environment:
+      GITHUB_TOKEN:
+        from_secret: GITHUB_TOKEN
+    commands:
+      - git fetch --tags --force origin
+      - TAG=$(sh scripts/next-release-tag.sh)
+      - if [ -z "$TAG" ]; then echo "No dependency change since the last release, nothing to tag"; exit 0; fi
+      - echo "Tagging $${CI_COMMIT_SHA} as $TAG"
+      - git tag "$TAG" "$${CI_COMMIT_SHA}"
+      - git push "https://x-access-token:$${GITHUB_TOKEN}@github.com/$${CI_REPO}.git" "refs/tags/$TAG"

@@ -1,0 +1,80 @@
+# Tag as <major>.<minor>.<patch> (e.g. 0.2.0) to build, release and list a new version.
+# Nothing is published unless the integration test passes for the tagged commit.
+depends_on:
+  - integration
+
+when:
+  - event: tag
+
+steps:
+  - name: package
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    # Disk the step writes into its own container (not the workspace volume), so the
+    # scheduler accounts for it and the kubelet does not evict the step first
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            ephemeral-storage: 1Gi
+    environment:
+      TARGET_ABI: "12.2.0.0"
+    commands:
+      - apt-get update && apt-get install -y --no-install-recommends zip
+      - VERSION="$${CI_COMMIT_TAG#v}.0"
+      - dotnet build -c Release -p:Version=$VERSION Jellyfin.Plugin.HAnimeTV/Jellyfin.Plugin.HAnimeTV.csproj
+      - mkdir -p artifacts/package
+      - cp Jellyfin.Plugin.HAnimeTV/bin/Release/net10.0/Jellyfin.Plugin.HAnimeTV.dll artifacts/package/
+      # Shown for the installed plugin; the catalog uses imageUrl in manifest.json
+      - cp images/thumb.png artifacts/package/
+      - TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      - >-
+        printf '{"guid":"1029189a-8a81-4419-8b08-78eb68071a0d","name":"hanime.tv","description":"Browse and play hanime.tv as a channel, for selected users only.","overview":"","owner":"CrystalNET-org","category":"Channels","version":"%s","targetAbi":"%s","timestamp":"%s","changelog":"","status":"Active","autoUpdate":true,"imagePath":"thumb.png","assemblies":[]}\n'
+        "$VERSION" "$TARGET_ABI" "$TIMESTAMP" > artifacts/package/meta.json
+      - cd artifacts/package && zip -j ../hanime.tv_$VERSION.zip ./* && cd ../..
+      - md5sum artifacts/hanime.tv_$VERSION.zip | cut -d' ' -f1 > artifacts/checksum
+      - printf '%s\n%s\n' "$VERSION" "$TIMESTAMP" > artifacts/release-info
+      - ls -l artifacts
+
+  - name: publish-release
+    image: harbor.crystalnet.org/dockerhub-proxy/woodpeckerci/plugin-release:0.3.2
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            ephemeral-storage: 256Mi
+    settings:
+      files:
+        - artifacts/*.zip
+      api_key:
+        from_secret: GITHUB_TOKEN
+      note: "Automated release by Woodpecker CI for $${CI_COMMIT_TAG}"
+
+  - name: update-manifest
+    image: harbor.crystalnet.org/dockerhub-proxy/library/python:3.14-slim
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            ephemeral-storage: 512Mi
+    environment:
+      GITHUB_TOKEN:
+        from_secret: GITHUB_TOKEN
+      TARGET_ABI: "12.2.0.0"
+    commands:
+      - apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+      - VERSION=$(sed -n 1p artifacts/release-info)
+      - TIMESTAMP=$(sed -n 2p artifacts/release-info)
+      # Changelog for the plugin catalog: commit titles since the previous release
+      - git fetch --tags --force --unshallow origin || git fetch --tags --force origin
+      - PREVIOUS=$(git describe --tags --abbrev=0 "$${CI_COMMIT_TAG}^" 2>/dev/null || true)
+      - >-
+        if [ -n "$PREVIOUS" ]; then
+        CHANGELOG=$(git log --no-merges --pretty='- %s' "$PREVIOUS..$${CI_COMMIT_TAG}" | grep -v '^- manifest: ' || true);
+        else CHANGELOG="Initial release"; fi
+      - git fetch origin main && git checkout -B main origin/main
+      - >-
+        python3 scripts/update_manifest.py --version "$VERSION" --target-abi "$TARGET_ABI"
+        --url "https://github.com/$${CI_REPO}/releases/download/$${CI_COMMIT_TAG}/hanime.tv_$VERSION.zip"
+        --checksum "$(cat artifacts/checksum)" --timestamp "$TIMESTAMP" --changelog "$CHANGELOG"
+      - 'git -c user.name="Woodpecker CI" -c user.email="woodpecker-bot@crystalnet.org" commit -am "manifest: add $VERSION [CI SKIP]"'
+      - git push "https://x-access-token:$${GITHUB_TOKEN}@github.com/$${CI_REPO}.git" main

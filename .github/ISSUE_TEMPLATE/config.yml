@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and help
+    url: https://discord.gg/Yj5AYwcGXu
+    about: Ask on Discord
+  - name: Security vulnerability
+    url: https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/security/advisories/new
+    about: Report security problems privately, not as an issue

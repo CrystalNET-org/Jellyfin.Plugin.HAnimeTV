@@ -1,0 +1,20 @@
+when:
+  # Other branches are tested through their pull request: a push there would run
+  # the same commit twice
+  - event: push
+    branch: ${CI_REPO_DEFAULT_BRANCH}
+  - event: [pull_request, manual]
+
+steps:
+  - name: build
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    # Disk the step writes into its own container (not the workspace volume), so the
+    # scheduler accounts for it and the kubelet does not evict the step first
+    backend_options:
+      kubernetes:
+        resources:
+          requests:
+            ephemeral-storage: 1Gi
+    commands:
+      - dotnet build -c Release Jellyfin.Plugin.HAnimeTV/Jellyfin.Plugin.HAnimeTV.csproj
+      - dotnet test Jellyfin.Plugin.HAnimeTV.Tests

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "dependencyDashboard": true,
+  "packageRules": [
+    {
+      "description": "Jellyfin packages: stay within the targeted plugin ABI (12.2)",
+      "matchPackageNames": [
+        "Jellyfin.Controller",
+        "Jellyfin.Model"
+      ],
+      "allowedVersions": "<12.3",
+      "groupName": "Jellyfin packages"
+    },
+    {
+      "description": "Jellyfin packages: automerge patch updates; the merge is released automatically (.woodpecker/auto_release.yaml)",
+      "matchPackageNames": [
+        "Jellyfin.Controller",
+        "Jellyfin.Model"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "automerge": true,
+      "automergeType": "pr"
+    },
+    {
+      "description": "CI .NET SDK: stay on the major version of the plugin's target framework (net10.0, required by Jellyfin 12.2); move SDK, target framework and Jellyfin packages together",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "mcr.microsoft.com/dotnet/sdk"
+      ],
+      "allowedVersions": "<11"
+    }
+  ]
+}

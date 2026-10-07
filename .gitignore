@@ -1,0 +1,39 @@
+# Visual Studio
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+[Bb]in/
+[Oo]bj/
+
+# Packages
+*.nupkg
+*.snupkg
+*.appx
+*.vsix
+.toolstmp/
+.packages/
+
+# Rider
+.idea/
+
+# Unit test results
+TestResults/
+.trx
+
+# Logs
+*.log
+
+# Woodpecker CI artifacts
+*.zip
+
+# Release packaging
+artifacts/
+
+# Integration test root
+.integration/
