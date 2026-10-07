@@ -7,6 +7,15 @@
     "owner": "CrystalNET-org",
     "category": "Channels",
     "imageUrl": "https://raw.githubusercontent.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/main/images/thumb.png",
-    "versions": []
+    "versions": [
+      {
+        "version": "0.1.1.0",
+        "changelog": "Initial release",
+        "targetAbi": "12.2.0.0",
+        "sourceUrl": "https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/releases/download/0.1.1/hanime.tv_0.1.1.0.zip",
+        "checksum": "f17ca7798bb84397626248281e905f39",
+        "timestamp": "2026-10-07T12:06:10Z"
+      }
+    ]
   }
 ]
