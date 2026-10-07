@@ -15,33 +15,55 @@ namespace Jellyfin.Plugin.HAnimeTV.Configuration
 
         public const string DefaultStreamHost = "https://hanime.tv";
 
+        public const string DefaultLibraryName = "hanime.tv";
+
         /// <summary>
-        /// Gets or sets the users who see the channel and can play its videos. Nobody else
-        /// does, administrators included, so a new installation shows the channel to no one.
+        /// Gets or sets the users who see the library and can play its videos. Nobody else
+        /// does, administrators included, so a new installation shows it to no one.
         /// </summary>
         public Guid[] AllowedUsers { get; set; } = Array.Empty<Guid>();
 
         /// <summary>
-        /// Gets or sets a value indicating whether the channel access in the users' policies
-        /// (Dashboard → Users → Access) follows <see cref="AllowedUsers"/>. Without it, the
-        /// channel is only hidden from the others' channel lists, while its videos stay
-        /// reachable for them by id.
+        /// Gets or sets a value indicating whether the library access in the users' policies
+        /// (Dashboard → Users → Access) follows <see cref="AllowedUsers"/>.
         /// </summary>
         public bool EnforceAccess { get; set; } = true;
 
         /// <summary>
-        /// Gets or sets the maximum number of videos in a folder. Jellyfin reads a folder's
-        /// items all at once and keeps an entry per item.
+        /// Gets or sets the folder the library's files are written to. Empty means
+        /// "hanime.tv" in Jellyfin's data directory.
         /// </summary>
-        public int MaxItemsPerFolder { get; set; } = 200;
+        public string LibraryPath { get; set; } = string.Empty;
 
         /// <summary>
-        /// Gets or sets genres (hanime.tv tags) whose videos are never shown.
+        /// Gets or sets a value indicating whether the plugin creates the Jellyfin library
+        /// for <see cref="LibraryPath"/> if there is none.
+        /// </summary>
+        public bool CreateLibrary { get; set; } = true;
+
+        public string LibraryName { get; set; } = DefaultLibraryName;
+
+        /// <summary>
+        /// Gets or sets the address of this Jellyfin server that the library's stream links
+        /// use, e.g. https://jellyfin.example.com. Browsers play these links directly, so it
+        /// must be the address the clients use; Jellyfin's ffmpeg must reach it too. Empty
+        /// means Jellyfin's local address.
+        /// </summary>
+        public string StreamBaseUrl { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the secret in the stream links. It only allows streaming hanime.tv's
+        /// videos through this server; generated on first use.
+        /// </summary>
+        public string StreamToken { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets genres (hanime.tv tags) whose videos are left out of the library.
         /// </summary>
         public string[] HiddenTags { get; set; } = Array.Empty<string>();
 
         /// <summary>
-        /// Gets or sets a value indicating whether censored videos are hidden.
+        /// Gets or sets a value indicating whether censored videos are left out.
         /// </summary>
         public bool HideCensored { get; set; }
 

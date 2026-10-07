@@ -4,19 +4,22 @@
 Expects Jellyfin prepared by prepare.sh. Creates users, selects one in the plugin's
 settings and checks, through Jellyfin's API as each user, that:
 
-- the plugin loads and its channel exists,
-- only the selected user sees the channel; Jellyfin itself refuses its videos to everyone
+- the plugin loads, writes the catalog as .strm and NFO files (signed the way hanime.tv
+  expects) and creates the shows library,
+- Jellyfin's scan turns them into series and episodes with the NFO's metadata,
+- only the selected user sees the library; Jellyfin itself refuses its videos to everyone
   else (by id and for playback), administrators included,
 - the users' policies follow the selection, also after an administrator grants all
-  channels again and for users created later,
-- the folders list the catalog, signed the way hanime.tv expects, and hidden genres
-  disappear from them,
-- a video plays: the streams come from the sealed handshake, are probed, and Jellyfin's
-  remux of the HLS stream returns segments (ffmpeg got the plugin's User-Agent),
+  libraries again and for users created later,
+- an episode plays: through Jellyfin's remux and directly from the stream link, as browsers
+  do; the stream comes from the sealed handshake and every request reaches hanime.tv with
+  the plugin's headers; links without the token or with forged URLs are refused,
+- hidden genres disappear from the library,
 - the plugin logs no errors.
 
 Environment: JELLYFIN_URL (default http://jellyfin:8096), LOG_DIR (fake-hanime.py's
-request log), JELLYFIN_LOG_DIR (optional, for the error check). Exits non-zero on failure.
+request log), LIBRARY_DIR (the plugin's library folder), JELLYFIN_LOG_DIR (optional, for
+the error check). Exits non-zero on failure.
 """
 import glob
 import json
@@ -29,12 +32,13 @@ import urllib.request
 
 BASE = os.environ.get("JELLYFIN_URL", "http://jellyfin:8096").rstrip("/")
 LOG_DIR = os.environ["LOG_DIR"]
+LIBRARY_DIR = os.environ["LIBRARY_DIR"]
 JELLYFIN_LOG_DIR = os.environ.get("JELLYFIN_LOG_DIR")
 PLUGIN_ID = "1029189A-8A81-4419-8B08-78EB68071A0D"
 failures = []
 
 # Enough for Jellyfin to remux H.264/AAC into HLS
-DEVICE_PROFILE = {
+REMUX_PROFILE = {
     "MaxStreamingBitrate": 120000000,
     "DirectPlayProfiles": [{"Container": "mp4", "Type": "Video", "VideoCodec": "h264", "AudioCodec": "aac"}],
     "TranscodingProfiles": [{"Container": "ts", "Type": "Video", "VideoCodec": "h264", "AudioCodec": "aac",
@@ -140,8 +144,8 @@ def policy(admin, user_id):
     return admin.call("GET", f"/Users/{user_id}")[1]["Policy"]
 
 
-def has_channel(policy_, channel_id):
-    return policy_["EnableAllChannels"] or channel_id in [norm(c) for c in policy_.get("EnabledChannels") or []]
+def has_library(policy_, library_id):
+    return policy_["EnableAllFolders"] or library_id in [norm(f) for f in policy_.get("EnabledFolders") or []]
 
 
 def update_config(admin, **changes):
@@ -151,121 +155,186 @@ def update_config(admin, **changes):
     return status in (200, 204)
 
 
-def channels(session):
-    status, result = session.call("GET", f"/Channels?userId={session.user_id}")
-    return [c for c in (result or {}).get("Items", []) if c.get("Name") == "hanime.tv"] if status == 200 else []
+def plugin_status(admin):
+    return admin.call("GET", "/HanimeTV/Status")[1] or {}
 
 
-def children(session, parent_id, extra=""):
-    status, result = session.call("GET", f"/Items?userId={session.user_id}&parentId={parent_id}{extra}")
-    return result.get("Items", []) if status == 200 and isinstance(result, dict) else None
+def views(session):
+    status, result = session.call("GET", f"/UserViews?userId={session.user_id}")
+    return [v.get("Name") for v in (result or {}).get("Items", [])] if status == 200 else []
+
+
+def series(session):
+    status, result = session.call("GET", f"/Items?userId={session.user_id}&includeItemTypes=Series&recursive=true&sortBy=SortName")
+    return {i["Name"]: i for i in (result or {}).get("Items", [])} if status == 200 and isinstance(result, dict) else {}
+
+
+def episodes(session, series_id):
+    status, result = session.call("GET", f"/Shows/{series_id}/Episodes?userId={session.user_id}&fields=Overview,Genres,Studios,DateCreated,Path,MediaSources")
+    return (result or {}).get("Items", []) if status == 200 and isinstance(result, dict) else []
+
+
+def get(session, path, timeout=120):
+    """GET with the session's login, or without one for an absolute URL (as players do)."""
+    if path.startswith("http"):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(path, headers={"User-Agent": "Lavf/61"}), timeout=timeout) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()[:300]
+    return session.call("GET", path, raw=True, timeout=timeout)
+
+
+def play_hls(session, url, description, anonymous=False):
+    """Fetches an HLS stream like a player: playlists down to the first segment. Anonymous
+    players (Jellyfin's ffmpeg, browsers following a stream link) send no Jellyfin login."""
+    url = urllib.parse.urljoin(BASE + "/", url)
+    for _ in range(4):
+        status, body = get(session, url if anonymous else url[len(BASE):])
+        if status != 200:
+            check(False, f"{description}: {url[len(BASE):][:70]}… is served ({status} {body[:200]})")
+            return
+        if b"#EXTM3U" not in body[:20]:
+            check(len(body) > 10000, f"{description}: the playlists lead to a segment, which is served ({len(body)} bytes)")
+            return
+        entry = next((line for line in body.decode(errors="replace").splitlines() if line and not line.startswith("#")), None)
+        if entry is None:
+            check(False, f"{description}: the playlist lists something to play")
+            return
+        url = urllib.parse.urljoin(url, entry)
+    check(False, f"{description}: no segment found")
 
 
 def main():
     admin = setup()
 
-    print("Plugin", flush=True)
+    print("Plugin and library", flush=True)
     status, plugins = admin.call("GET", "/Plugins")
     plugin = next((p for p in plugins or [] if norm(p.get("Id", "")) == norm(PLUGIN_ID)), None)
     check(plugin is not None and plugin.get("Status") == "Active", f"the plugin is loaded and active ({plugin and plugin.get('Status')})")
-    status, plugin_status = admin.call("GET", "/HanimeTV/Status")
-    if not check(status == 200, f"the status API answers ({status})"):
+    state = wait_for("the first sync", lambda: (lambda s: s if s.get("LibraryId") and (s.get("LastReport") or {}).get("Episodes") else None)(plugin_status(admin)), timeout=120)
+    if not state:
+        print(json.dumps(plugin_status(admin), indent=1)[:2000])
         return
-    channel_id = norm(plugin_status["ChannelId"])
+    library_id = norm(state["LibraryId"])
+    check(state["LastReport"]["Series"] == 2 and state["LastReport"]["Episodes"] == 3, f"the catalog makes 2 series with 3 episodes ({state['LastReport']})")
+    check(any(e["kind"] == "catalog" for e in fake_log()) and not any(e.get("reason") == "bad app2 signature" for e in fake_log()),
+          "the catalog was requested with a valid signature")
+    strm = os.path.join(LIBRARY_DIR, "Test Show", "Season 01", "Test Show S01E01.strm")
+    check(os.path.isfile(strm) and os.path.isfile(strm[:-5] + ".nfo") and os.path.isfile(os.path.join(LIBRARY_DIR, "Test Show", "tvshow.nfo")),
+          "the files are written: Test Show/Season 01/Test Show S01E01.strm with its NFO, and tvshow.nfo")
+    stream_link = open(strm).read().strip() if os.path.isfile(strm) else ""
+    check(stream_link.startswith("http://jellyfin:8096/HanimeTV/Stream/test-show-1/index.m3u8?token="), f"the .strm file holds the stream link ({stream_link[:70]}…)")
+    status, folders = admin.call("GET", "/Library/VirtualFolders")
+    library = next((f for f in folders or [] if norm(f.get("ItemId", "")) == library_id), {})
+    check(library.get("CollectionType") == "tvshows" and library.get("Name") == "hanime.tv", f"the shows library hanime.tv was created ({library.get('Name')}, {library.get('CollectionType')})")
 
     print("Access", flush=True)
     alice_id = create_user(admin, "alice")
     bob_id = create_user(admin, "bob")
     check(update_config(admin, AllowedUsers=[alice_id]), "alice is selected in the settings")
     wait_for("the policies to follow the selection",
-             lambda: not has_channel(policy(admin, bob_id), channel_id) and not has_channel(policy(admin, admin.user_id), channel_id))
-    check(has_channel(policy(admin, alice_id), channel_id), "alice's policy grants the channel")
-    bob_policy = policy(admin, bob_id)
-    check(not has_channel(bob_policy, channel_id), "bob's policy does not")
-    check(not has_channel(policy(admin, admin.user_id), channel_id), "nor the administrator's, who is not selected")
+             lambda: has_library(policy(admin, alice_id), library_id) and not has_library(policy(admin, bob_id), library_id)
+             and not has_library(policy(admin, admin.user_id), library_id))
+    check(has_library(policy(admin, alice_id), library_id), "alice's policy grants the library")
+    check(not has_library(policy(admin, bob_id), library_id), "bob's policy does not")
+    check(not has_library(policy(admin, admin.user_id), library_id), "nor the administrator's, who is not selected")
 
     alice = Session("alice").login("alice", "alice")
     bob = Session("bob").login("bob", "bob")
-    check(len(channels(alice)) == 1, "alice sees the channel")
-    check(not channels(bob), "bob does not")
-    check(not channels(admin), "nor does the administrator")
+    check("hanime.tv" in views(alice), f"alice sees the library ({views(alice)})")
+    check("hanime.tv" not in views(bob), "bob does not")
+    check("hanime.tv" not in views(admin), "nor does the administrator")
 
-    print("Folders", flush=True)
-    root = children(alice, channel_id) or []
-    names = sorted(i["Name"] for i in root)
-    check(names == ["Genres", "Most liked", "Most viewed", "New releases", "Recently uploaded", "Series A–Z", "Studios"],
-          f"the channel lists its folders ({names})")
-    latest = next((i for i in root if i["Name"] == "Recently uploaded"), None)
-    # Jellyfin sorts by name unless asked otherwise; the upload time is the date added
-    videos = children(alice, latest["Id"], "&sortBy=DateCreated&sortOrder=Descending") if latest else []
-    check([v["Name"] for v in videos or []] == ["Hidden Video", "Test Show 2", "Test Show 1"], f"sorted by date added, the newest uploads come first ({[v['Name'] for v in videos or []]})")
-    check(any(e["kind"] == "catalog" for e in fake_log()) and not any(e.get("reason") == "bad app2 signature" for e in fake_log()),
-          "the catalog was requested with a valid signature")
-    video = next((v for v in videos or [] if v["Name"] == "Test Show 1"), None)
-    if not check(video is not None, "the video is listed"):
+    print("Series and episodes", flush=True)
+    shows = wait_for("the scan", lambda: (lambda s: s if {"Test Show", "Hidden Video"} <= set(s) else None)(series(alice)), timeout=180) or {}
+    check(set(shows) == {"Test Show", "Hidden Video"}, f"the series are in the library ({sorted(shows)})")
+    show = shows.get("Test Show")
+    if not show:
         return
-    check(video.get("SeriesName") == "Test Show" and video.get("OfficialRating") == "XXX", "it is an adults-only episode of its series")
+    status, show_item = alice.call("GET", f"/Items/{show['Id']}?userId={alice.user_id}")
+    check(show_item.get("OfficialRating") == "XXX" and "Test Studio" in [s["Name"] for s in show_item.get("Studios", [])],
+          f"the series has the NFO's metadata ({show_item.get('OfficialRating')}, {[s['Name'] for s in show_item.get('Studios', [])]})")
+    check(show_item.get("ImageTags", {}).get("Primary") is not None, "and its cover")
+    eps = episodes(alice, show["Id"])
+    check([(e.get("IndexNumber"), e.get("Name")) for e in eps] == [(1, "Test Show 1"), (2, "Test Show 2")],
+          f"its episodes are numbered ({[(e.get('IndexNumber'), e.get('Name')) for e in eps]})")
+    episode = eps[0] if eps else None
+    if not episode:
+        return
+    check(episode.get("Overview") == "The first episode." and "HD" in episode.get("Genres", []) and episode.get("PremiereDate", "").startswith("2023-07-22"),
+          f"the episode has the NFO's metadata ({episode.get('Overview')!r}, {episode.get('Genres')}, {episode.get('PremiereDate')})")
+    check(episode.get("DateCreated", "").startswith("2023-11-14"), f"its date added is the upload time ({episode.get('DateCreated')})")
+    hidden = next(iter(episodes(alice, shows["Hidden Video"]["Id"])), {})
 
-    status, _ = bob.call("GET", f"/Items/{video['Id']}?userId={bob.user_id}")
-    check(status == 404, f"bob cannot open the video by id ({status})")
-    check(not children(bob, latest["Id"]), "nor list the channel's folders")
-    check(len(children(alice, latest["Id"]) or []) == 3, "which does not empty them for alice")
-    status, _ = bob.call("POST", f"/Items/{video['Id']}/PlaybackInfo?userId={bob.user_id}", {"DeviceProfile": DEVICE_PROFILE})
+    status, _ = bob.call("GET", f"/Items/{episode['Id']}?userId={bob.user_id}")
+    check(status == 404, f"bob cannot open the episode by id ({status})")
+    check(not series(bob), "nor list the series")
+    status, _ = bob.call("POST", f"/Items/{episode['Id']}/PlaybackInfo?userId={bob.user_id}", {"DeviceProfile": REMUX_PROFILE})
     check(status in (403, 404), f"nor play it ({status})")
 
-    print("Playback", flush=True)
-    status, info = alice.call("POST", f"/Items/{video['Id']}/PlaybackInfo?userId={alice.user_id}",
-                              {"DeviceProfile": DEVICE_PROFILE, "UserId": alice.user_id}, timeout=120)
-    sources = (info or {}).get("MediaSources", []) if status == 200 else []
-    check(len(sources) == 1, f"one stream for a guest, no premium one ({[s.get('Name') for s in sources]}, {status} {info if status != 200 else ''})")
-    if not sources:
-        return
-    source = sources[0]
-    check(source.get("Path", "").endswith("/hls/test-show-1/index.m3u8"), f"the stream comes from the handshake ({source.get('Path')})")
-    check(any(e["kind"] == "handshake" and e["slug"] == "test-show-1" for e in fake_log()), "the handshake was signed and sealed correctly")
+    print("Playback through Jellyfin", flush=True)
+    status, info = alice.call("POST", f"/Items/{episode['Id']}/PlaybackInfo?userId={alice.user_id}",
+                              {"DeviceProfile": REMUX_PROFILE, "UserId": alice.user_id}, timeout=120)
+    source = ((info or {}).get("MediaSources") or [{}])[0] if status == 200 else {}
+    check(status == 200 and source.get("Path", "").startswith("http://jellyfin:8096/HanimeTV/Stream/test-show-1/"), f"the episode plays from its stream link ({status}, {source.get('Path', '')[:60]})")
     runtime = (source.get("RunTimeTicks") or 0) / 10_000_000
-    check(25 <= runtime <= 35, f"the stream was probed: {runtime:.1f}s")
-    check(not source.get("SupportsDirectPlay") and source.get("TranscodingUrl"), "Jellyfin remuxes or transcodes it")
-    transcoding_url = source.get("TranscodingUrl", "")
-    status, master = alice.call("GET", transcoding_url, raw=True, timeout=120)
-    check(status == 200 and b"#EXTM3U" in master, f"the HLS master playlist is served ({status})")
-    if status == 200:
-        variant = next(line for line in master.decode().splitlines() if line and not line.startswith("#"))
-        variant_url = urllib.parse.urljoin(BASE + transcoding_url, variant)[len(BASE):]
-        status, playlist = alice.call("GET", variant_url, raw=True, timeout=120)
-        segment = next((line for line in playlist.decode(errors="replace").splitlines() if line and not line.startswith("#")), None) if status == 200 else None
-        if check(segment is not None, f"the variant playlist lists segments ({status})"):
-            segment_url = urllib.parse.urljoin(BASE + variant_url, segment)[len(BASE):]
-            status, data = alice.call("GET", segment_url, raw=True, timeout=180)
-            check(status == 200 and len(data) > 10000, f"the first segment is served ({status}, {len(data) if status == 200 else data})")
+    check(25 <= runtime <= 35, f"Jellyfin probed the stream: {runtime:.1f}s")
+    check(any(e["kind"] == "handshake" and e["slug"] == "test-show-1" for e in fake_log()), "the handshake was signed and sealed correctly")
+    if source.get("TranscodingUrl"):
+        play_hls(alice, source["TranscodingUrl"], "Jellyfin's remux")
+        alice.call("DELETE", f"/Videos/ActiveEncodings?deviceId=integration-alice&playSessionId={info.get('PlaySessionId', '')}")
+    else:
+        check(False, "Jellyfin offers to remux the stream")
+
+    print("Playback in a browser", flush=True)
+    # Jellyfin's web client plays a remote source without required headers from its Path
+    # when the browser can play it, so the stream link must work on its own
+    check(source.get("IsRemote") and source.get("Protocol") == "Http" and not source.get("RequiredHttpHeaders"),
+          "a browser that plays the episode directly gets the stream link")
+    play_hls(alice, source.get("Path") or stream_link, "the stream link, without a login", anonymous=True)
     hls = [e for e in fake_log("hls") if "test-show-1" in e["path"]]
-    check(hls and all("Mozilla" in e["user_agent"] for e in hls), "ffmpeg read the stream with the plugin's User-Agent")
-    check(not any(e.get("reason") == "no browser User-Agent" for e in fake_log()), "and was never refused")
-    alice.call("DELETE", f"/Videos/ActiveEncodings?deviceId=integration-alice&playSessionId={info.get('PlaySessionId', '')}")
+    check(hls and all("Mozilla" in e["user_agent"] and e["referer"] == "https://hanime.tv/" for e in hls),
+          "every request reached hanime.tv with the plugin's headers")
+    check(not any(e.get("reason") == "no browser User-Agent" for e in fake_log()), "and none was refused")
+
+    print("Stream links", flush=True)
+    base_link = stream_link.split("?")[0]
+    check(get(alice, base_link)[0] == 403, "a link without the token is refused")
+    check(get(alice, base_link + "?token=wrong")[0] == 403, "a link with a wrong token is refused")
+    token = stream_link.split("token=")[1]
+    forged = base_link.replace("index.m3u8", "proxy") + f"/{token}/0123456789abcdef0123456789abcdef/aHR0cDovL2V4YW1wbGUuY29t/x.ts"
+    check(get(alice, forged)[0] == 403, "a proxy link to a URL the plugin did not sign is refused")
 
     print("Settings", flush=True)
     check(update_config(admin, AllowedUsers=[alice_id], HiddenTags=["skipme"]), "the genre skipme is hidden")
-    videos = children(alice, latest["Id"], "&sortBy=DateCreated&sortOrder=Descending") or []
-    check([v["Name"] for v in videos] == ["Test Show 2", "Test Show 1"], f"and its video is gone ({[v['Name'] for v in videos]})")
+    wait_for("the hidden video's files to go", lambda: not os.path.exists(os.path.join(LIBRARY_DIR, "Hidden Video")), timeout=60)
+    check(not os.path.exists(os.path.join(LIBRARY_DIR, "Hidden Video")), "its files are removed")
+    gone = wait_for("the scan to remove it", lambda: "Hidden Video" not in series(alice), timeout=120)
+    check(bool(gone), f"and its series is gone from the library ({sorted(series(alice))})")
+    if hidden:
+        check(alice.call("GET", f"/Items/{hidden['Id']}?userId={alice.user_id}")[0] == 404, "with its episode")
 
     print("Enforcement", flush=True)
     bob_policy = policy(admin, bob_id)
-    bob_policy["EnableAllChannels"] = True
+    bob_policy["EnableAllFolders"] = True
     admin.call("POST", f"/Users/{bob_id}/Policy", bob_policy)
-    check(has_channel(policy(admin, bob_id), channel_id), "an administrator grants bob all channels")
+    check(has_library(policy(admin, bob_id), library_id), "an administrator grants bob all libraries")
     status, result = admin.call("POST", "/HanimeTV/SyncAccess")
-    check(status == 200 and "bob" in (result or {}).get("Changed", []), f"enforcing takes the channel away again ({result})")
-    check(not has_channel(policy(admin, bob_id), channel_id), "bob's policy no longer grants it")
+    check(status == 200 and "bob" in (result or {}).get("Changed", []), f"enforcing takes the library away again ({result})")
+    check(not has_library(policy(admin, bob_id), library_id), "bob's policy no longer grants it")
+    other = [norm(f["ItemId"]) for f in admin.call("GET", "/Library/VirtualFolders")[1] if norm(f["ItemId"]) != library_id]
+    check(set(other) <= {norm(f) for f in policy(admin, bob_id).get("EnabledFolders") or []}, "while keeping all other libraries")
 
     carol_id = create_user(admin, "carol")
-    wait_for("the new user's policy", lambda: not has_channel(policy(admin, carol_id), channel_id), timeout=30)
-    check(not has_channel(policy(admin, carol_id), channel_id), "a new user does not get the channel")
+    wait_for("the new user's policy", lambda: not has_library(policy(admin, carol_id), library_id), timeout=30)
+    check(not has_library(policy(admin, carol_id), library_id), "a new user does not get the library")
 
     check(update_config(admin, AllowedUsers=[]), "alice is no longer selected")
-    wait_for("alice's policy", lambda: not has_channel(policy(admin, alice_id), channel_id))
-    check(not channels(alice), "and no longer sees the channel")
-    status, _ = alice.call("GET", f"/Items/{video['Id']}?userId={alice.user_id}")
-    check(status == 404, f"nor its videos ({status})")
+    wait_for("alice's policy", lambda: not has_library(policy(admin, alice_id), library_id))
+    check("hanime.tv" not in views(alice), "and no longer sees the library")
+    status, _ = alice.call("GET", f"/Items/{episode['Id']}?userId={alice.user_id}")
+    check(status == 404, f"nor its episodes ({status})")
 
     if JELLYFIN_LOG_DIR:
         print("Log", flush=True)

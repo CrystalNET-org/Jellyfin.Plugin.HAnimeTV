@@ -1,22 +1,23 @@
+using Jellyfin.Plugin.HAnimeTV.Access;
 using MediaBrowser.Model.Plugins;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
-namespace Jellyfin.Plugin.HAnimeTV.Access
+namespace Jellyfin.Plugin.HAnimeTV.Library
 {
     /// <summary>
-    /// Checks the users' channel access once the server is up and whenever the settings are saved.
+    /// Syncs the library once the server is up and whenever the settings are saved.
     /// </summary>
-    public sealed class ChannelAccessService : IHostedService
+    public sealed class LibraryService : IHostedService
     {
         private static readonly TimeSpan StartupDelay = TimeSpan.FromSeconds(15);
 
-        private readonly ChannelAccessSync _sync;
-        private readonly ILogger<ChannelAccessService> _logger;
+        private readonly LibrarySync _sync;
+        private readonly ILogger<LibraryService> _logger;
         private readonly CancellationTokenSource _stopping = new();
         private Plugin? _plugin;
 
-        public ChannelAccessService(ChannelAccessSync sync, ILogger<ChannelAccessService> logger)
+        public LibraryService(LibrarySync sync, ILogger<LibraryService> logger)
         {
             _sync = sync;
             _logger = logger;
@@ -57,14 +58,14 @@ namespace Jellyfin.Plugin.HAnimeTV.Access
                     try
                     {
                         await Task.Delay(delay, token).ConfigureAwait(false);
-                        await _sync.SyncAllAsync(token).ConfigureAwait(false);
+                        await _sync.SyncAsync(token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (token.IsCancellationRequested)
                     {
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "hanime.tv: checking the users' channel access failed");
+                        _logger.LogError(ex, "hanime.tv: syncing the library failed");
                     }
                 },
                 token);

@@ -1,9 +1,9 @@
 using Jellyfin.Data;
-using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Plugin.HAnimeTV.Access;
 using Jellyfin.Plugin.HAnimeTV.Configuration;
 using Jellyfin.Plugin.HAnimeTV.Hanime;
+using Jellyfin.Plugin.HAnimeTV.Library;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
@@ -22,30 +22,33 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
     public class HanimeTvController : ControllerBase
     {
         private readonly HanimeClient _client;
-        private readonly ChannelAccessSync _sync;
+        private readonly LibrarySync _sync;
+        private readonly LibraryAccessSync _access;
+        private readonly LibraryLocator _locator;
         private readonly IUserManager _userManager;
-        private readonly ILibraryManager _libraryManager;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly ILoggerFactory _loggerFactory;
 
         public HanimeTvController(
             HanimeClient client,
-            ChannelAccessSync sync,
+            LibrarySync sync,
+            LibraryAccessSync access,
+            LibraryLocator locator,
             IUserManager userManager,
-            ILibraryManager libraryManager,
             IHttpClientFactory httpClientFactory,
             ILoggerFactory loggerFactory)
         {
             _client = client;
             _sync = sync;
+            _access = access;
+            _locator = locator;
             _userManager = userManager;
-            _libraryManager = libraryManager;
             _httpClientFactory = httpClientFactory;
             _loggerFactory = loggerFactory;
         }
 
         /// <summary>
-        /// Gets the channel's state and which users can access it.
+        /// Gets the library's state and which users can access it.
         /// </summary>
         [HttpGet("Status")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -57,17 +60,20 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
                 return StatusCode(StatusCodes.Status503ServiceUnavailable);
             }
 
-            var channelId = _sync.ChannelId;
+            var libraryId = _locator.Find();
             return new
             {
-                ChannelId = channelId,
+                LibraryFolder = _locator.FolderPath,
+                LibraryId = libraryId,
+                StreamBaseUrl = _sync.StreamBaseUrl(config),
                 config.EnforceAccess,
+                _sync.LastReport,
                 _client.CatalogTime,
                 _client.CatalogCount,
                 _client.CatalogError,
                 _client.AccountStatus,
-                _sync.LastSync,
-                _sync.LastChanged,
+                LastAccessSync = _access.LastSync,
+                LastAccessChanged = _access.LastChanged,
                 Users = _userManager.GetUsers()
                     .OrderBy(u => u.Username, StringComparer.OrdinalIgnoreCase)
                     .Select(u => new
@@ -76,8 +82,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
                         Name = u.Username,
                         IsAdministrator = u.HasPermission(PermissionKind.IsAdministrator),
                         Selected = config.IsAllowed(u.Id),
-                        // What Jellyfin's policy grants, which decides access by id and playback
-                        PolicyGrantsAccess = PolicyGrantsAccess(u, channelId),
+                        // What Jellyfin's policy grants, which decides what the user sees
+                        PolicyGrantsAccess = libraryId is { } id && LibraryAccessSync.PolicyGrantsAccess(u, id),
                     }),
             };
         }
@@ -106,6 +112,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
                 return new { Ok = false, CatalogCount = 0, CatalogError = "The catalog is empty" };
             }
 
+            var series = LibraryLayout.Series(LibraryLayout.Visible(catalog, settings));
             try
             {
                 var streams = await client.GetStreamsAsync(newest.Slug, cancellationToken).ConfigureAwait(false);
@@ -113,6 +120,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
                 {
                     Ok = true,
                     CatalogCount = catalog.Count,
+                    SeriesCount = series.Count,
+                    EpisodeCount = series.Sum(s => s.Episodes.Count),
                     TestedVideo = newest.Name,
                     Streams = streams.Select(s => s.Label),
                     client.AccountStatus,
@@ -125,28 +134,22 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
         }
 
         /// <summary>
-        /// Brings the users' channel access in line with the selection now.
+        /// Syncs the library now.
+        /// </summary>
+        [HttpPost("Sync")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<SyncReport>> Sync(CancellationToken cancellationToken) =>
+            await _sync.SyncAsync(cancellationToken).ConfigureAwait(false);
+
+        /// <summary>
+        /// Brings the users' library access in line with the selection now.
         /// </summary>
         [HttpPost("SyncAccess")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult<object>> SyncAccess(CancellationToken cancellationToken)
         {
-            var changed = await _sync.SyncAllAsync(cancellationToken).ConfigureAwait(false);
+            var changed = await _access.SyncAllAsync(cancellationToken).ConfigureAwait(false);
             return new { Changed = changed };
-        }
-
-        private bool PolicyGrantsAccess(User user, Guid channelId)
-        {
-            // Jellyfin's own check, once the channel exists
-            if (_libraryManager.GetItemById(channelId) is MediaBrowser.Controller.Channels.Channel channel)
-            {
-                return channel.IsVisible(user);
-            }
-
-            var blocked = user.GetPreferenceValues<Guid>(PreferenceKind.BlockedChannels);
-            return blocked.Length != 0
-                ? !blocked.Contains(channelId)
-                : user.HasPermission(PermissionKind.EnableAllChannels) || user.GetPreferenceValues<Guid>(PreferenceKind.EnabledChannels).Contains(channelId);
         }
     }
 }

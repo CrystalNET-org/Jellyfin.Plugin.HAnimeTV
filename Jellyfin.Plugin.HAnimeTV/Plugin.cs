@@ -7,7 +7,7 @@ using MediaBrowser.Model.Serialization;
 namespace Jellyfin.Plugin.HAnimeTV
 {
     /// <summary>
-    /// hanime.tv as a channel, for selected users only.
+    /// hanime.tv as a shows library, for selected users only.
     /// </summary>
     public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
@@ -23,7 +23,7 @@ namespace Jellyfin.Plugin.HAnimeTV
 
         public override string Name => "hanime.tv";
 
-        public override string Description => "Browse and play hanime.tv as a channel, for selected users only.";
+        public override string Description => "hanime.tv as a shows library with series and metadata, for selected users only.";
 
         public IEnumerable<PluginPageInfo> GetPages()
         {

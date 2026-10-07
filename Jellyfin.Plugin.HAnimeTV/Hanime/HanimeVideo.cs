@@ -10,6 +10,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
     /// </summary>
     public sealed partial class HanimeVideo
     {
+        private (string Series, int Episode)? _seriesInfo;
+
         public required string Slug { get; init; }
 
         public required string Name { get; init; }
@@ -50,10 +52,16 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         /// </summary>
         public (string Series, int Episode) SeriesInfo()
         {
+            if (_seriesInfo is { } cached)
+            {
+                return cached;
+            }
+
             var match = EpisodePattern().Match(Name);
-            return match.Success && int.TryParse(match.Groups["episode"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var episode)
+            _seriesInfo = match.Success && int.TryParse(match.Groups["episode"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var episode)
                 ? (match.Groups["series"].Value.Trim(), episode)
                 : (Name.Trim(), 1);
+            return _seriesInfo.Value;
         }
 
         /// <summary>
@@ -66,9 +74,10 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
                 return null;
             }
 
-            var text = ParagraphEnd().Replace(Description, "\n");
+            var text = ParagraphEnd().Replace(Description.Replace("\r", string.Empty, StringComparison.Ordinal), "\n");
             text = HtmlTag().Replace(text, string.Empty);
-            return WebUtility.HtmlDecode(text).Trim();
+            // Paragraphs end in </p> and blank lines: one blank line between them
+            return BlankLines().Replace(WebUtility.HtmlDecode(text).Trim(), "\n\n");
         }
 
         /// <summary>
@@ -172,5 +181,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
 
         [GeneratedRegex("<[^>]*>")]
         private static partial Regex HtmlTag();
+
+        [GeneratedRegex(@"\n\s*\n\s*")]
+        private static partial Regex BlankLines();
     }
 }

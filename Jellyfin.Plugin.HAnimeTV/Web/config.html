@@ -161,6 +161,7 @@
                 <nav class="htNav" aria-label="Settings sections">
                     <button type="button" class="htNavButton" data-section="status">Status</button>
                     <button type="button" class="htNavButton" data-section="users">Users</button>
+                    <button type="button" class="htNavButton" data-section="library">Library</button>
                     <button type="button" class="htNavButton" data-section="catalog">Catalog</button>
                     <button type="button" class="htNavButton" data-section="account">Account</button>
                     <button type="button" class="htNavButton" data-section="advanced">Advanced</button>
@@ -169,34 +170,38 @@
                 <div class="htContent">
                     <section class="htSection" data-section="status">
                         <h3 class="sectionTitle">Status</h3>
-                        <p>Adds hanime.tv as a channel: its videos, by category, genre, studio and series, play
-                            through Jellyfin. The channel is for adults: only the users selected under
-                            <em>Users</em> see it, nobody else.</p>
+                        <p>Writes hanime.tv's catalog into a shows library: every video becomes an episode of its
+                            series, with hanime.tv's description, genres, studio, release date and images. The library
+                            is for adults: only the users selected under <em>Users</em> see it, nobody else.</p>
                         <div id="htStatus" class="fieldDescription">Loading…</div>
                         <div style="margin-top: 1.5em;">
                             <button is="emby-button" type="button" class="raised block" id="htTest"><span>Test</span></button>
                         </div>
                         <div class="fieldDescription">Downloads the catalog and asks for the streams of the newest video, with the settings as entered here, also before saving them.</div>
                         <div id="htTestResult" class="fieldDescription"></div>
+                        <div style="margin-top: 1.5em;">
+                            <button is="emby-button" type="button" class="raised block" id="htSyncLibrary"><span>Sync the library now</span></button>
+                        </div>
+                        <div class="fieldDescription">Also runs every 6 hours (scheduled task <em>Sync hanime.tv library</em>) and after saving.</div>
+                        <div id="htSyncLibraryResult" class="fieldDescription"></div>
                     </section>
 
                     <section class="htSection" data-section="users">
                         <h3 class="sectionTitle">Users</h3>
-                        <p>Only the selected users see the channel and can play its videos, administrators included.</p>
+                        <p>Only the selected users see the library and can play its videos, administrators included.</p>
                         <div id="htUsers" class="htUsers">Loading…</div>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label>
                                 <input is="emby-checkbox" type="checkbox" id="enforceAccess" />
-                                <span>Enforce through the users' channel access</span>
+                                <span>Enforce through the users' library access</span>
                             </label>
                             <div class="fieldDescription checkboxFieldDescription">
-                                Recommended. Without it the channel is only left out of the others' channel lists and
-                                home screens, while its videos stay reachable for them by id, e.g. through a shared link.
-                                With it, the channel access of every user's policy (Dashboard → Users → Access) follows this
-                                selection, so Jellyfin itself refuses the videos to the others. A user who had access to all
-                                channels and is not selected keeps access to every other channel, now listed one by one: tick
-                                <em>Enable access to all channels</em> again there and the plugin takes this channel out again
-                                within 15 minutes (scheduled task <em>Enforce hanime.tv channel access</em>).
+                                Recommended. The library access of every user's policy (Dashboard → Users → Access) follows
+                                this selection, so Jellyfin itself hides the library and its videos from the others. A user
+                                who had access to all libraries and is not selected keeps access to every other library, now
+                                listed one by one: tick <em>Enable access to all libraries</em> again there and the plugin
+                                takes this library out again within 15 minutes (scheduled task <em>Enforce hanime.tv library
+                                access</em>). Without it, set the users' access to the library yourself.
                             </div>
                         </div>
                         <div>
@@ -205,25 +210,52 @@
                         <div id="htSyncResult" class="fieldDescription"></div>
                     </section>
 
+                    <section class="htSection" data-section="library">
+                        <h3 class="sectionTitle">Library</h3>
+                        <div class="inputContainer">
+                            <input type="text" id="libraryPath" is="emby-input" label="Folder" />
+                            <div class="fieldDescription">Where the library's files go: a .strm file (the episode's stream link) and an NFO
+                                file (its metadata) per episode. Empty means the folder <code>hanime.tv</code> in Jellyfin's data
+                                directory (<span id="htDefaultFolder"></span>). Use an empty folder: the plugin replaces everything in it.</div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="createLibrary" />
+                                <span>Create the Jellyfin library</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                Creates a shows library for the folder if there is none, which reads only the plugin's
+                                metadata and never extracts trickplay or chapter images from the streams. To change it later,
+                                use Dashboard → Libraries.
+                            </div>
+                        </div>
+                        <div class="inputContainer">
+                            <input type="text" id="libraryName" is="emby-input" label="Library name" />
+                        </div>
+                        <div class="inputContainer">
+                            <input type="url" id="streamBaseUrl" is="emby-input" label="Jellyfin address for the stream links" />
+                            <div class="fieldDescription">The address the stream links in the .strm files use, e.g.
+                                <code>https://jellyfin.example.com</code>. Browsers play these links themselves, so use the address
+                                your clients open Jellyfin with; Jellyfin's ffmpeg (or its workers) must reach it too. Filled in
+                                with this page's address when empty.</div>
+                        </div>
+                    </section>
+
                     <section class="htSection" data-section="catalog">
                         <h3 class="sectionTitle">Catalog</h3>
                         <div class="inputContainer">
                             <input type="text" id="hiddenTags" is="emby-input" label="Hidden genres" />
-                            <div class="fieldDescription">hanime.tv tags whose videos are never shown, separated by commas, e.g. <code>loli, shota, scat</code>.</div>
+                            <div class="fieldDescription">hanime.tv tags whose videos are left out of the library, separated by commas, e.g. <code>loli, shota, scat</code>.</div>
                         </div>
                         <div class="checkboxContainer">
                             <label>
                                 <input is="emby-checkbox" type="checkbox" id="hideCensored" />
-                                <span>Hide censored videos</span>
+                                <span>Leave out censored videos</span>
                             </label>
                         </div>
                         <div class="inputContainer">
-                            <input type="number" id="maxItemsPerFolder" is="emby-input" label="Videos per folder" min="10" max="2000" />
-                            <div class="fieldDescription">Jellyfin reads a folder's videos all at once and keeps an entry for each, so large folders open slowly. Series always list all their episodes.</div>
-                        </div>
-                        <div class="inputContainer">
                             <input type="number" id="catalogCacheHours" is="emby-input" label="Catalog refresh (hours)" min="1" max="168" />
-                            <div class="fieldDescription">How long the catalog is kept before it is downloaded again. Jellyfin also keeps each folder's listing for 3 hours.</div>
+                            <div class="fieldDescription">How long the catalog is kept before it is downloaded again.</div>
                         </div>
                     </section>
 
@@ -391,21 +423,35 @@
                     return api('GET', 'HanimeTV/Status').then(status => {
                         lastStatus = status;
                         const lines = [];
+                        const report = get(status, 'LastReport');
+                        const libraryId = get(status, 'LibraryId');
+                        if (!report) {
+                            lines.push('Library: not synced yet (starts shortly after Jellyfin starts and after saving)');
+                        } else if (get(report, 'Error')) {
+                            lines.push('✘ Last sync failed (' + formatTime(get(report, 'Time')) + '): ' + get(report, 'Error'));
+                        } else {
+                            lines.push('Library: ' + get(report, 'Series') + ' series, ' + get(report, 'Episodes') + ' episodes, synced ' + formatTime(get(report, 'Time')));
+                        }
+                        lines.push(libraryId
+                            ? 'Jellyfin library: found for ' + get(status, 'LibraryFolder')
+                            : '✘ No Jellyfin library for ' + get(status, 'LibraryFolder') + ' yet: tick "Create the Jellyfin library" or add it under Dashboard → Libraries');
+                        lines.push('Stream links: ' + get(status, 'StreamBaseUrl') + '/HanimeTV/Stream/…');
                         const count = get(status, 'CatalogCount');
-                        lines.push(count == null
-                            ? 'Catalog: not downloaded yet (on first use of the channel)'
-                            : 'Catalog: ' + count + ' videos, downloaded ' + formatTime(get(status, 'CatalogTime')));
+                        if (count != null) {
+                            lines.push('Catalog: ' + count + ' videos, downloaded ' + formatTime(get(status, 'CatalogTime')));
+                        }
                         if (get(status, 'CatalogError')) {
-                            lines.push('✘ Last download failed: ' + get(status, 'CatalogError'));
+                            lines.push('✘ Last catalog download failed: ' + get(status, 'CatalogError'));
                         }
                         lines.push('Account: ' + (get(status, 'AccountStatus') || 'none or not used yet (guest, up to 720p)'));
                         if (get(status, 'EnforceAccess')) {
-                            const changed = get(status, 'LastChanged') || [];
-                            lines.push('Channel access last enforced: ' + formatTime(get(status, 'LastSync'))
+                            const changed = get(status, 'LastAccessChanged') || [];
+                            lines.push('Library access last enforced: ' + formatTime(get(status, 'LastAccessSync'))
                                 + (changed.length ? ' (changed: ' + changed.join(', ') + ')' : ''));
                         } else {
-                            lines.push('Channel access: not enforced through the users\' policies');
+                            lines.push('Library access: not enforced through the users\' policies');
                         }
+                        $('#htDefaultFolder').textContent = get(status, 'LibraryFolder');
                         setLines($('#htStatus'), lines);
                         renderUsers(get(status, 'Users') || []);
                         updateHeader(status);
@@ -421,7 +467,11 @@
                         $('#enforceAccess').checked = config.EnforceAccess;
                         $('#hiddenTags').value = (config.HiddenTags || []).join(', ');
                         $('#hideCensored').checked = config.HideCensored;
-                        $('#maxItemsPerFolder').value = config.MaxItemsPerFolder || 200;
+                        $('#libraryPath').value = config.LibraryPath || '';
+                        $('#createLibrary').checked = config.CreateLibrary;
+                        $('#libraryName').value = config.LibraryName || 'hanime.tv';
+                        // This page's address, which the browser reached Jellyfin with
+                        $('#streamBaseUrl').value = config.StreamBaseUrl || ApiClient.serverAddress();
                         $('#catalogCacheHours').value = config.CatalogCacheHours || 6;
                         $('#email').value = config.Email || '';
                         $('#password').value = config.Password || '';
@@ -442,7 +492,10 @@
                     config.EnforceAccess = $('#enforceAccess').checked;
                     config.HiddenTags = $('#hiddenTags').value.split(',').map(t => t.trim()).filter(t => t);
                     config.HideCensored = $('#hideCensored').checked;
-                    config.MaxItemsPerFolder = parseInt($('#maxItemsPerFolder').value, 10) || 200;
+                    config.LibraryPath = $('#libraryPath').value.trim();
+                    config.CreateLibrary = $('#createLibrary').checked;
+                    config.LibraryName = $('#libraryName').value.trim() || 'hanime.tv';
+                    config.StreamBaseUrl = $('#streamBaseUrl').value.trim().replace(/\/+$/, '');
                     config.CatalogCacheHours = parseInt($('#catalogCacheHours').value, 10) || 6;
                     config.Email = $('#email').value.trim();
                     config.Password = $('#password').value;
@@ -458,7 +511,8 @@
                     if (get(result, 'CatalogError')) {
                         lines.push('✘ Catalog: ' + get(result, 'CatalogError'));
                     } else {
-                        lines.push('✔ Catalog: ' + get(result, 'CatalogCount') + ' videos');
+                        lines.push('✔ Catalog: ' + get(result, 'CatalogCount') + ' videos'
+                            + (get(result, 'SeriesCount') != null ? ', ' + get(result, 'SeriesCount') + ' series with ' + get(result, 'EpisodeCount') + ' episodes after the filters' : ''));
                     }
                     if (get(result, 'TestedVideo')) {
                         lines.push(get(result, 'StreamError')
@@ -483,8 +537,8 @@
                         .then(result => {
                             Dashboard.processPluginConfigurationUpdateResult(result);
                             setFooterMessage('Saved at ' + new Date().toLocaleTimeString(), 'ok');
-                            // The users' access is enforced in the background after saving
-                            setTimeout(loadStatus, 1500);
+                            // The library is synced and the users' access enforced in the background after saving
+                            setTimeout(loadStatus, 3000);
                         })
                         .catch(() => setFooterMessage('Saving failed, see the server log.', 'error'))
                         .finally(() => { save.disabled = false; });
@@ -527,6 +581,28 @@
                             return loadStatus();
                         })
                         .catch(() => { $('#htSyncResult').textContent = 'Could not apply the access, see the server log.'; })
+                        .finally(() => { button.disabled = false; });
+                });
+
+                $('#htSyncLibrary').addEventListener('click', function () {
+                    const button = this;
+                    if ($('#htFooterMessage').getAttribute('data-state') === 'dirty') {
+                        $('#htSyncLibraryResult').textContent = 'Save first: the library is synced with the saved settings.';
+                        return;
+                    }
+                    button.disabled = true;
+                    $('#htSyncLibraryResult').textContent = 'Syncing…';
+                    api('POST', 'HanimeTV/Sync')
+                        .then(report => {
+                            const files = get(report, 'Files');
+                            $('#htSyncLibraryResult').textContent = get(report, 'Error')
+                                ? '✘ ' + get(report, 'Error')
+                                : '✔ ' + get(report, 'Series') + ' series, ' + get(report, 'Episodes') + ' episodes; '
+                                    + get(files, 'Written') + ' files written, ' + get(files, 'Deleted') + ' episodes removed'
+                                    + (get(files, 'Written') || get(files, 'Deleted') ? '. Jellyfin is scanning the library.' : '.');
+                            return loadStatus();
+                        })
+                        .catch(() => { $('#htSyncLibraryResult').textContent = '✘ The sync could not be run, see the server log.'; })
                         .finally(() => { button.disabled = false; });
                 });
 

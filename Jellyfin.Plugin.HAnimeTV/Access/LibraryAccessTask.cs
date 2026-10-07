@@ -3,23 +3,23 @@ using MediaBrowser.Model.Tasks;
 namespace Jellyfin.Plugin.HAnimeTV.Access
 {
     /// <summary>
-    /// Takes the channel away again from users who were given all channels in the dashboard.
+    /// Takes the library away again from users who were given all libraries in the dashboard.
     /// Jellyfin reports no changes to a user's access, so they are checked regularly.
     /// </summary>
-    public class ChannelAccessTask : IScheduledTask
+    public class LibraryAccessTask : IScheduledTask
     {
-        private readonly ChannelAccessSync _sync;
+        private readonly LibraryAccessSync _sync;
 
-        public ChannelAccessTask(ChannelAccessSync sync)
+        public LibraryAccessTask(LibraryAccessSync sync)
         {
             _sync = sync;
         }
 
-        public string Name => "Enforce hanime.tv channel access";
+        public string Name => "Enforce hanime.tv library access";
 
-        public string Key => "HAnimeTVChannelAccess";
+        public string Key => "HAnimeTVLibraryAccess";
 
-        public string Description => "Grants the hanime.tv channel to the users selected in the plugin's settings and takes it away from everyone else.";
+        public string Description => "Grants the hanime.tv library to the users selected in the plugin's settings and takes it away from everyone else.";
 
         public string Category => "hanime.tv";
 

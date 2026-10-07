@@ -37,6 +37,14 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         private Catalog? _catalog;
         private Session? _session;
 
+        /// <summary>
+        /// Streams by slug: a playback asks for them several times within seconds (Jellyfin's
+        /// probe, then the player), and their links stay valid for hours.
+        /// </summary>
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (IReadOnlyList<HanimeStream> Streams, DateTimeOffset Time)> _streams = new(StringComparer.Ordinal);
+
+        private static readonly TimeSpan StreamCacheTime = TimeSpan.FromMinutes(10);
+
         public HanimeClient(IHttpClientFactory httpClientFactory, Func<PluginConfiguration> configuration, ILogger logger, TimeProvider? time = null)
         {
             _httpClientFactory = httpClientFactory;
@@ -80,7 +88,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
                 return cached.Videos;
             }
 
-            // One download at a time: the channel's folders are often opened together
+            // One download at a time: a sync and a playback may ask together
             await _catalogLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -182,6 +190,47 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         /// Gets the video's streams, best first.
         /// </summary>
         /// <exception cref="HanimeException">hanime.tv returned no streams.</exception>
+        public async Task<IReadOnlyList<HanimeStream>> GetCachedStreamsAsync(string slug, CancellationToken cancellationToken)
+        {
+            if (_streams.TryGetValue(slug, out var cached) && _time.GetUtcNow() - cached.Time < StreamCacheTime)
+            {
+                return cached.Streams;
+            }
+
+            var streams = await GetStreamsAsync(slug, cancellationToken).ConfigureAwait(false);
+            foreach (var old in _streams.Where(e => _time.GetUtcNow() - e.Value.Time >= StreamCacheTime).ToList())
+            {
+                _streams.TryRemove(old);
+            }
+
+            _streams[slug] = (streams, _time.GetUtcNow());
+            return streams;
+        }
+
+        /// <summary>
+        /// Fetches a stream's playlist, segment or key with the headers of hanime.tv's player.
+        /// The caller disposes the response.
+        /// </summary>
+        public async Task<HttpResponseMessage> FetchMediaAsync(Uri url, CancellationToken cancellationToken)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.UserAgent.Clear();
+            request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
+            request.Headers.TryAddWithoutValidation("Origin", Origin);
+            request.Headers.Referrer = new Uri(Referer);
+
+            try
+            {
+                // No overall timeout: a segment may take its time; the player cancels
+                return await _httpClientFactory.CreateClient(NamedClient.Default)
+                    .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new HanimeException($"Could not reach {url.Host}: {ex.Message}", ex);
+            }
+        }
+
         public async Task<IReadOnlyList<HanimeStream>> GetStreamsAsync(string slug, CancellationToken cancellationToken)
         {
             var config = _configuration();

@@ -1,37 +1,32 @@
+using System.Globalization;
 using Jellyfin.Data;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
-using Jellyfin.Plugin.HAnimeTV.Channels;
-using MediaBrowser.Controller.Channels;
+using Jellyfin.Plugin.HAnimeTV.Library;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.HAnimeTV.Access
 {
     /// <summary>
-    /// Makes Jellyfin's user policies grant the channel to the selected users only, so that
-    /// Jellyfin itself refuses its videos to everyone else: in searches, by id and for playback.
+    /// Makes Jellyfin's user policies grant the library to the selected users only, so that
+    /// Jellyfin itself hides it and its videos from everyone else.
     /// </summary>
-    public sealed class ChannelAccessSync
+    public sealed class LibraryAccessSync
     {
         private readonly IUserManager _userManager;
         private readonly ILibraryManager _libraryManager;
-        private readonly IEnumerable<IChannel> _channels;
-        private readonly ILogger<ChannelAccessSync> _logger;
+        private readonly LibraryLocator _locator;
+        private readonly ILogger<LibraryAccessSync> _logger;
         private readonly SemaphoreSlim _lock = new(1, 1);
 
-        public ChannelAccessSync(IUserManager userManager, ILibraryManager libraryManager, IEnumerable<IChannel> channels, ILogger<ChannelAccessSync> logger)
+        public LibraryAccessSync(IUserManager userManager, ILibraryManager libraryManager, LibraryLocator locator, ILogger<LibraryAccessSync> logger)
         {
             _userManager = userManager;
             _libraryManager = libraryManager;
-            _channels = channels;
+            _locator = locator;
             _logger = logger;
         }
-
-        /// <summary>
-        /// Gets the channel's id in Jellyfin.
-        /// </summary>
-        public Guid ChannelId => HanimeChannel.InternalId(_libraryManager, HanimeChannel.ChannelName);
 
         /// <summary>
         /// Gets when the policies were last checked, or null.
@@ -44,13 +39,13 @@ namespace Jellyfin.Plugin.HAnimeTV.Access
         public IReadOnlyList<string> LastChanged { get; private set; } = Array.Empty<string>();
 
         /// <summary>
-        /// Checks all users' access, unless enforcing it is off.
+        /// Checks all users' access, unless enforcing it is off or there is no library yet.
         /// </summary>
         /// <returns>The names of the users whose access changed.</returns>
         public async Task<IReadOnlyList<string>> SyncAllAsync(CancellationToken cancellationToken)
         {
             var config = Plugin.Instance?.Configuration;
-            if (config is null || !config.EnforceAccess)
+            if (config is null || !config.EnforceAccess || _locator.Find() is not { } libraryId)
             {
                 return Array.Empty<string>();
             }
@@ -62,7 +57,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Access
                 foreach (var user in _userManager.GetUsers().ToList())
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (await SyncUserInternalAsync(user, config.IsAllowed(user.Id)).ConfigureAwait(false))
+                    if (await SyncUserInternalAsync(user, libraryId, config.IsAllowed(user.Id)).ConfigureAwait(false))
                     {
                         changed.Add(user.Username);
                     }
@@ -79,12 +74,12 @@ namespace Jellyfin.Plugin.HAnimeTV.Access
         }
 
         /// <summary>
-        /// Checks one user's access, unless enforcing it is off.
+        /// Checks one user's access, unless enforcing it is off or there is no library yet.
         /// </summary>
         public async Task SyncUserAsync(Guid userId, CancellationToken cancellationToken)
         {
             var config = Plugin.Instance?.Configuration;
-            if (config is null || !config.EnforceAccess)
+            if (config is null || !config.EnforceAccess || _locator.Find() is not { } libraryId)
             {
                 return;
             }
@@ -94,7 +89,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Access
             {
                 if (_userManager.GetUserById(userId) is { } user)
                 {
-                    await SyncUserInternalAsync(user, config.IsAllowed(user.Id)).ConfigureAwait(false);
+                    await SyncUserInternalAsync(user, libraryId, config.IsAllowed(user.Id)).ConfigureAwait(false);
                 }
             }
             finally
@@ -103,25 +98,37 @@ namespace Jellyfin.Plugin.HAnimeTV.Access
             }
         }
 
-        private async Task<bool> SyncUserInternalAsync(User user, bool allowed)
+        /// <summary>
+        /// Gets whether Jellyfin's policy currently grants the user the library.
+        /// </summary>
+        public static bool PolicyGrantsAccess(User user, Guid libraryId)
         {
-            var channelId = ChannelId;
+            var blocked = user.GetPreferenceValues<Guid>(PreferenceKind.BlockedMediaFolders);
+            return blocked.Length != 0
+                ? !blocked.Contains(libraryId)
+                : user.HasPermission(PermissionKind.EnableAllFolders) || user.GetPreferenceValues<Guid>(PreferenceKind.EnabledFolders).Contains(libraryId);
+        }
+
+        private async Task<bool> SyncUserInternalAsync(User user, Guid libraryId, bool allowed)
+        {
             var changed = false;
             try
             {
-                if (ChannelAccessPolicy.BlockedChannels(user.GetPreferenceValues<Guid>(PreferenceKind.BlockedChannels), channelId, allowed) is { } blocked)
+                if (LibraryAccessPolicy.BlockedLibraries(user.GetPreferenceValues<Guid>(PreferenceKind.BlockedMediaFolders), libraryId, allowed) is { } blocked)
                 {
-                    user.SetPreference(PreferenceKind.BlockedChannels, blocked);
+                    user.SetPreference(PreferenceKind.BlockedMediaFolders, blocked);
                     await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
                     changed = true;
                 }
 
-                // A list of blocked channels replaces the policy's channel selection
-                if (user.GetPreferenceValues<Guid>(PreferenceKind.BlockedChannels).Length == 0)
+                // A list of blocked libraries replaces the policy's library selection
+                if (user.GetPreferenceValues<Guid>(PreferenceKind.BlockedMediaFolders).Length == 0)
                 {
                     var policy = _userManager.GetUserDto(user).Policy;
-                    var others = _channels.Select(c => HanimeChannel.InternalId(_libraryManager, c.Name));
-                    if (ChannelAccessPolicy.Apply(policy, channelId, allowed, others))
+                    var others = _libraryManager.GetVirtualFolders()
+                        .Select(f => Guid.TryParse(f.ItemId, CultureInfo.InvariantCulture, out var id) ? id : Guid.Empty)
+                        .Where(id => id != Guid.Empty);
+                    if (LibraryAccessPolicy.Apply(policy, libraryId, allowed, others))
                     {
                         await _userManager.UpdatePolicyAsync(user.Id, policy).ConfigureAwait(false);
                         changed = true;
@@ -131,14 +138,14 @@ namespace Jellyfin.Plugin.HAnimeTV.Access
                 if (changed)
                 {
                     _logger.LogInformation(
-                        "hanime.tv: {Action} the channel for {User} in the user's policy",
+                        "hanime.tv: {Action} the library for {User} in the user's policy",
                         allowed ? "granted" : "revoked",
                         user.Username);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "hanime.tv: could not update the channel access of {User}", user.Username);
+                _logger.LogError(ex, "hanime.tv: could not update the library access of {User}", user.Username);
             }
 
             return changed;
