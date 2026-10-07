@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stands in for hanime.tv, Hentai Haven and Pornhub in the integration test.
+"""Stands in for hanime.tv, oppai.stream, Hentai Haven and Pornhub in the integration test.
 
 Serves what the plugin uses, and checks its requests the way the sites do:
 
@@ -10,6 +10,9 @@ Serves what the plugin uses, and checks its requests the way the sites do:
                              series, series and episode pages, the player page with its keys
 - POST /haven/wp-content/plugins/player-logic/api.php
                              the player's API: the streams for the keys of the player page
+- GET  /oppai/actions/search.php  oppai.stream's search: every episode, newest first
+- GET  /oppai/watch?e=…      oppai.stream's episode pages, with "availableres" and subtitles
+- GET  /oppai/media/…, /oppai/subs/…  its MP4 files (with ranges) and subtitles; need its Referer
 - GET  /ph/webmasters/...    Pornhub's webmasters API (search, categories)
 - GET  /ph/view_video.php    Pornhub's video pages with their flashvars; need the age cookies
 - GET  /ph/video/get_media   Pornhub's list of MP4 files
@@ -44,6 +47,7 @@ AAD = b"htv-insecure-v1"
 BASE = f"http://fake-hanime:{PORT}"
 HAVEN = f"{BASE}/haven"
 PORNHUB = f"{BASE}/ph"
+OPPAI = f"{BASE}/oppai"
 
 # Two series episodes and a video tagged "skipme", which check.py hides
 CATALOG = [
@@ -69,6 +73,30 @@ HAVEN_SERIES = {
     "haven-only": {"title": "Haven Only", "episodes": [1], "media": {1: "haven-only-1"}},
 }
 HAVEN_KEYS = {}  # en -> media, as the player page hands them out
+
+# oppai.stream, newest first: "Test Show" 3 (Hentai Haven has it too: oppai.stream wins) and 4,
+# and a series of its own. Episode 3 has English subtitles
+OPPAI_EPISODES = [("Test Show", 4), ("Oppai Only", 1), ("Test Show", 3)]
+SUBTITLE = "WEBVTT\n\n00:00:01.000 --> 00:00:05.000\nHello from oppai.stream\n"
+
+
+def oppai_search():
+    cards = "".join(f"""
+      <div class="episode-shown"><div class="in"><a href="#" exur="{OPPAI}/watch?e={name} {n}&f={n}">
+        <img class="cover-img-in" src="{BASE}/images/cover.jpg"><div class="title-ep">{name} {n}</div></a></div></div>""" for name, n in OPPAI_EPISODES)
+    return f"<html><body>{cards}</body></html>"
+
+
+def oppai_episode(name, n):
+    track = f'<track kind="captions" src="{OPPAI}/subs/{name.replace(" ", "-")}-{n}.vtt" srclang="en" label="English">' if n == 3 else ""
+    res = json.dumps({"720": f"{OPPAI}/media/oppai.mp4?e={n}", "1080": f"{OPPAI}/media/oppai.mp4?e={n}&q=1080"})
+    return f"""<html><body>
+      <div class="episode-info"><h1>{name} Ep {n}</h1><h6><a class="red" href="#">Oppai Studio</a></h6></div>
+      <video id="episode" poster="{BASE}/images/cover.jpg">{track}</video>
+      <div class="description">{name} from oppai.stream. Watch {name} on Oppai Stream</div>
+      <div class="tags"><a href="#">Uncensored</a><a href="#">HD</a></div>
+      <script>var availableres = {res};</script></body></html>"""
+
 
 PORNHUB_VIDEOS = [
     {"video_id": "phhls1", "title": "Pornhub HLS Video", "duration": "0:30", "views": "100", "rating": "90",
@@ -202,6 +230,26 @@ class Handler(BaseHTTPRequestHandler):
             HAVEN_KEYS[en] = media
             self.log(status=200, kind="haven-player")
             return self.reply(200, f"<html><body><script type=\"text/javascript\">var en = '{en}';\nvar iv = 'iv-{en}';</script></body></html>".encode(), html)
+
+        # oppai.stream
+        if path == "/oppai/actions/search.php":
+            self.log(status=200, kind="oppai-search")
+            return self.reply(200, (oppai_search() if query.get("page") == ["1"] else "<html></html>").encode(), html)
+        if path == "/oppai/watch":
+            name, _, n = query.get("e", [""])[0].rpartition(" ")
+            if (name, int(n or 0)) not in OPPAI_EPISODES or query.get("f") != [n]:
+                self.log(status=404)
+                return self.reply(404, b"<html>gone</html>", html)
+            self.log(status=200, kind="oppai-episode", episode=f"{name} {n}")
+            return self.reply(200, oppai_episode(name, int(n)).encode(), html)
+        if path.startswith("/oppai/media/") or path.startswith("/oppai/subs/"):
+            if not self.headers.get("Referer", "").startswith(OPPAI):
+                return self.deny("no oppai.stream Referer")
+            if path.startswith("/oppai/subs/"):
+                self.log(status=200, kind="oppai-subtitle")
+                return self.reply(200, SUBTITLE.encode(), "text/vtt")
+            self.log(status=206 if self.headers.get("Range") else 200, kind="oppai-mp4", range=self.headers.get("Range", ""))
+            return self.reply_file(os.path.join(MEDIA_DIR, "media", "ph-mp4.mp4"), "video/mp4")
 
         # Pornhub
         if path == "/ph/webmasters/search":

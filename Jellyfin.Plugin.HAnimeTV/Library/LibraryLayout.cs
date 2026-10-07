@@ -9,7 +9,9 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
     /// <summary>
     /// A file of the library, relative to its folder.
     /// </summary>
-    public sealed record LibraryFile(string RelativePath, string Content);
+    /// <param name="DownloadUrl">Where the content comes from if it is not given: a subtitle the
+    /// sync downloads, once.</param>
+    public sealed record LibraryFile(string RelativePath, string Content, string? DownloadUrl = null);
 
     /// <summary>
     /// The library's files, in the layout Jellyfin's shows libraries expect:
@@ -51,10 +53,30 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
                     var name = Path.Combine(folder, "Season 01", string.Create(CultureInfo.InvariantCulture, $"{folder} S01E{number:00}"));
                     files.Add(new LibraryFile(name + ".strm", streamUrl(episode) + "\n"));
                     files.Add(new LibraryFile(name + ".nfo", EpisodeNfo(series, episode, number)));
+                    files.AddRange(SubtitleFiles(name, episode));
                 }
             }
 
             return files;
+        }
+
+        /// <summary>
+        /// The subtitles next to an episode, named the way Jellyfin finds them:
+        /// "Show S01E01.en.vtt", "Show S01E01.en.2.vtt" for a second one.
+        /// </summary>
+        internal static IEnumerable<LibraryFile> SubtitleFiles(string episodeName, HentaiVideo video)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var subtitle in video.Subtitles)
+            {
+                var name = episodeName + "." + subtitle.Language;
+                for (var n = 2; !names.Add(name); n++)
+                {
+                    name = episodeName + "." + subtitle.Language + "." + n.ToString(CultureInfo.InvariantCulture);
+                }
+
+                yield return new LibraryFile(name + subtitle.Extension, string.Empty, subtitle.Url);
+            }
         }
 
         /// <summary>

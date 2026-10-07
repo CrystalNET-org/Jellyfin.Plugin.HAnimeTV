@@ -18,7 +18,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
 
         public string Key => "HAnimeTVLibrarySync";
 
-        public string Description => "Writes the catalogs of hanime.tv and Hentai Haven into the hentai library and has Jellyfin scan what changed.";
+        public string Description => "Writes the catalogs of hanime.tv, oppai.stream and Hentai Haven into the hentai library and has Jellyfin scan what changed.";
 
         public string Category => "Adult Media";
 

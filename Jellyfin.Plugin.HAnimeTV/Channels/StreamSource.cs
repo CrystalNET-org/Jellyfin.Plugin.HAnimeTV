@@ -62,6 +62,38 @@ namespace Jellyfin.Plugin.HAnimeTV.Channels
             DefaultAudioStreamIndex = 1,
         };
 
+        /// <summary>
+        /// Adds subtitles the player loads from their links, after the probed streams.
+        /// </summary>
+        internal static void AddSubtitles(MediaSourceInfo source, IEnumerable<(Hentai.HentaiSubtitle Subtitle, string Link)> subtitles)
+        {
+            var streams = source.MediaStreams.ToList();
+            foreach (var (subtitle, link) in subtitles)
+            {
+                streams.Add(new MediaStream
+                {
+                    Type = MediaStreamType.Subtitle,
+                    Index = streams.Count == 0 ? 0 : streams.Max(s => s.Index) + 1,
+                    Codec = subtitle.Extension.TrimStart('.') switch
+                    {
+                        "srt" => "subrip",
+                        "ssa" or "ass" => "ass",
+                        _ => "webvtt",
+                    },
+                    Language = subtitle.Language == "und" ? null : subtitle.Language,
+                    Title = subtitle.Label,
+                    IsExternal = true,
+                    IsExternalUrl = true,
+                    SupportsExternalStream = true,
+                    Path = link,
+                    DeliveryMethod = SubtitleDeliveryMethod.External,
+                    DeliveryUrl = link,
+                });
+            }
+
+            source.MediaStreams = streams;
+        }
+
         internal static void ApplyProbe(MediaSourceInfo source, MediaSourceInfo probed)
         {
             if (probed.MediaStreams?.Any(s => s.Type == MediaStreamType.Video) == true)

@@ -6,6 +6,7 @@ using Jellyfin.Plugin.HAnimeTV.Hanime;
 using Jellyfin.Plugin.HAnimeTV.Hentai;
 using Jellyfin.Plugin.HAnimeTV.HentaiHaven;
 using Jellyfin.Plugin.HAnimeTV.Library;
+using Jellyfin.Plugin.HAnimeTV.OppaiStream;
 using Jellyfin.Plugin.HAnimeTV.Pornhub;
 using Jellyfin.Plugin.HAnimeTV.Streaming;
 using MediaBrowser.Common.Configuration;
@@ -36,6 +37,11 @@ namespace Jellyfin.Plugin.HAnimeTV
                 () => Plugin.Instance?.Configuration.Hentai ?? new HentaiSettings(),
                 Path.Combine(services.GetRequiredService<IApplicationPaths>().DataPath, "adult-media", "hentaihaven.json"),
                 services.GetRequiredService<ILoggerFactory>().CreateLogger<HentaiHavenClient>()));
+            serviceCollection.AddSingleton(services => new OppaiStreamClient(
+                services.GetRequiredService<IHttpClientFactory>(),
+                () => Plugin.Instance?.Configuration.Hentai ?? new HentaiSettings(),
+                Path.Combine(services.GetRequiredService<IApplicationPaths>().DataPath, "adult-media", "oppaistream.json"),
+                services.GetRequiredService<ILoggerFactory>().CreateLogger<OppaiStreamClient>()));
             serviceCollection.AddSingleton(services => new PornhubClient(
                 services.GetRequiredService<IHttpClientFactory>(),
                 () => Plugin.Instance?.Configuration.Pornhub ?? new PornhubSettings(),
@@ -45,6 +51,7 @@ namespace Jellyfin.Plugin.HAnimeTV
             serviceCollection.AddSingleton<StreamLinks>();
             serviceCollection.AddSingleton<HanimeStreamResolver>();
             serviceCollection.AddSingleton<HentaiHavenStreamResolver>();
+            serviceCollection.AddSingleton<OppaiStreamResolver>();
             serviceCollection.AddSingleton<PornhubStreamResolver>();
 
             serviceCollection.AddSingleton<HentaiChannelSource>();

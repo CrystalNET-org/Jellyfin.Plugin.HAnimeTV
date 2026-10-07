@@ -6,8 +6,9 @@ Creates users, selects them in the plugin's settings and checks, through Jellyfi
 each user, that:
 
 - the plugin loads, moves the old settings into its Hentai provider, merges the catalogs
-  of hanime.tv (signed the way hanime.tv expects) and Hentai Haven into .strm and NFO
-  files (an episode both have from hanime.tv) and creates the shows library,
+  of hanime.tv (signed the way hanime.tv expects), oppai.stream and Hentai Haven into .strm,
+  NFO and subtitle files (an episode several have from the first of them) and creates the
+  shows library,
 - Jellyfin's scan turns them into series and episodes with the NFO's metadata,
 - only the selected user sees the library; Jellyfin itself refuses its videos to everyone
   else (by id and for playback), administrators included,
@@ -16,6 +17,7 @@ each user, that:
 - an episode plays: through Jellyfin's remux and directly from the stream link, as browsers
   do; the stream comes from the sealed handshake and every request reaches hanime.tv with
   the plugin's headers; links without the token or with forged URLs are refused,
+- an oppai.stream episode plays as an MP4 file with ranges, with its subtitles next to it,
 - a Hentai Haven episode plays through its player's API, with the site's headers,
 - hidden genres disappear from the library,
 - Pornhub, as a channel, shows only for its selected user and plays (HLS, and MP4 files
@@ -259,8 +261,8 @@ def main():
         print(json.dumps(plugin_status(admin), indent=1)[:2000])
         return
     library_id = norm(state["LibraryId"])
-    check(state["LastReport"]["Series"] == 3 and state["LastReport"]["Episodes"] == 5,
-          f"the merged catalog makes 3 series with 5 episodes ({state['LastReport']})")
+    check(state["LastReport"]["Series"] == 4 and state["LastReport"]["Episodes"] == 7,
+          f"the merged catalog makes 4 series with 7 episodes ({state['LastReport']})")
     check(any(e.get("kind") == "catalog" for e in fake_log()) and not any(e.get("reason") == "bad app2 signature" for e in fake_log()),
           "hanime.tv's catalog was requested with a valid signature")
     check({e.get("slug") for e in fake_log("haven-series")} == {"test-show", "haven-only"}, "Hentai Haven's list and series pages were read")
@@ -273,9 +275,16 @@ def main():
     second = os.path.join(show_dir, "Test Show S01E02.strm")
     check(os.path.isfile(second) and "/HanimeTV/Stream/test-show-2/" in open(second).read(), "the episode both sites have comes from hanime.tv")
     third = os.path.join(show_dir, "Test Show S01E03.strm")
-    haven_link = open(third).read().strip() if os.path.isfile(third) else ""
-    check(haven_link.startswith("http://jellyfin:8096/HanimeTV/HentaiHaven/"), f"the episode only Hentai Haven has joins the series ({haven_link[:70]}…)")
-    check(os.path.isfile(os.path.join(LIBRARY_DIR, "Haven Only", "Season 01", "Haven Only S01E01.strm")), "as does Hentai Haven's own series")
+    oppai_link = open(third).read().strip() if os.path.isfile(third) else ""
+    check(oppai_link.startswith("http://jellyfin:8096/HanimeTV/OppaiStream/") and "/video.mp4?token=" in oppai_link,
+          f"the episode oppai.stream and Hentai Haven have comes from oppai.stream, as a file ({oppai_link[:70]}…)")
+    subtitle = os.path.join(show_dir, "Test Show S01E03.en.vtt")
+    check(os.path.isfile(subtitle) and "Hello from oppai.stream" in open(subtitle).read(), "with its subtitles next to it")
+    check(os.path.isfile(os.path.join(show_dir, "Test Show S01E04.strm")), "the episode only oppai.stream has joins the series")
+    haven_strm = os.path.join(LIBRARY_DIR, "Haven Only", "Season 01", "Haven Only S01E01.strm")
+    haven_link = open(haven_strm).read().strip() if os.path.isfile(haven_strm) else ""
+    check(haven_link.startswith("http://jellyfin:8096/HanimeTV/HentaiHaven/"), f"as do Hentai Haven's own series ({haven_link[:70]}…)")
+    check(os.path.isfile(os.path.join(LIBRARY_DIR, "Oppai Only", "Season 01", "Oppai Only S01E01.strm")), "and oppai.stream's")
     status, folders = admin.call("GET", "/Library/VirtualFolders")
     library = next((f for f in folders or [] if norm(f.get("ItemId", "")) == library_id), {})
     check(library.get("CollectionType") == "tvshows" and library.get("Name") == "Hentai", f"the shows library Hentai was created ({library.get('Name')}, {library.get('CollectionType')})")
@@ -298,7 +307,7 @@ def main():
     check("Hentai" not in views(admin), "nor does the administrator")
 
     print("Series and episodes", flush=True)
-    expected_shows = {"Test Show", "Hidden Video", "Haven Only"}
+    expected_shows = {"Test Show", "Hidden Video", "Haven Only", "Oppai Only"}
     shows = wait_for("the scan", lambda: (lambda s: s if expected_shows <= set(s) else None)(series(alice)), timeout=180) or {}
     check(set(shows) == expected_shows, f"the series are in the library ({sorted(shows)})")
     show = shows.get("Test Show")
@@ -309,7 +318,7 @@ def main():
           f"the series has the NFO's metadata ({show_item.get('OfficialRating')}, {[s['Name'] for s in show_item.get('Studios', [])]})")
     check(show_item.get("ImageTags", {}).get("Primary") is not None, "and its cover")
     eps = episodes(alice, show["Id"])
-    check([(e.get("IndexNumber"), e.get("Name")) for e in eps] == [(1, "Test Show 1"), (2, "Test Show 2"), (3, "Test Show 3")],
+    check([(e.get("IndexNumber"), e.get("Name")) for e in eps] == [(1, "Test Show 1"), (2, "Test Show 2"), (3, "Test Show 3"), (4, "Test Show 4")],
           f"its episodes from both sites are numbered ({[(e.get('IndexNumber'), e.get('Name')) for e in eps]})")
     episode = eps[0] if eps else None
     if not episode:
@@ -317,9 +326,12 @@ def main():
     check(episode.get("Overview") == "The first episode." and "HD" in episode.get("Genres", []) and episode.get("PremiereDate", "").startswith("2023-07-22"),
           f"the episode has the NFO's metadata ({episode.get('Overview')!r}, {episode.get('Genres')}, {episode.get('PremiereDate')})")
     check(episode.get("DateCreated", "").startswith("2023-11-14"), f"its date added is the upload time ({episode.get('DateCreated')})")
-    haven_episode = eps[2] if len(eps) > 2 else {}
+    oppai_episode = eps[2] if len(eps) > 2 else {}
+    check(oppai_episode.get("Overview") == "Test Show from oppai.stream." and "Oppai Studio" in [s["Name"] for s in oppai_episode.get("Studios", [])],
+          f"the oppai.stream episode has the site's metadata ({oppai_episode.get('Overview')!r}, {[s['Name'] for s in oppai_episode.get('Studios', [])]})")
+    haven_episode = next(iter(episodes(alice, shows["Haven Only"]["Id"])), {}) if "Haven Only" in shows else {}
     check(haven_episode.get("Overview") == "From Hentai Haven." and "Haven Studio" in [s["Name"] for s in haven_episode.get("Studios", [])]
-          and haven_episode.get("PremiereDate", "").startswith("2024-03-03"),
+          and haven_episode.get("PremiereDate", "").startswith("2024-03-01"),
           f"the Hentai Haven episode has the site's metadata ({haven_episode.get('Overview')!r}, {haven_episode.get('PremiereDate')})")
     hidden = next(iter(episodes(alice, shows["Hidden Video"]["Id"])), {})
 
@@ -352,6 +364,24 @@ def main():
           "every request reached hanime.tv with the plugin's headers")
     check(not any(e.get("reason") == "no browser User-Agent" for e in fake_log()), "and none was refused")
 
+    print("oppai.stream", flush=True)
+    if oppai_episode:
+        status, source, info = playback_info(alice, oppai_episode["Id"])
+        path = source.get("Path", "")
+        check(status == 200 and path.startswith("http://jellyfin:8096/HanimeTV/OppaiStream/") and "/video.mp4?" in path,
+              f"the oppai.stream episode plays from its stream link ({status}, {path[:60]})")
+        runtime = (source.get("RunTimeTicks") or 0) / 10_000_000
+        check(25 <= runtime <= 35, f"Jellyfin probed its file: {runtime:.1f}s")
+        subtitles = [s for s in source.get("MediaStreams") or [] if s.get("Type") == "Subtitle"]
+        check(subtitles and subtitles[0].get("IsExternal") and subtitles[0].get("Language") in ("en", "eng"),
+              f"Jellyfin found its subtitles ({[(s.get('Language'), s.get('Codec'), s.get('IsExternal')) for s in subtitles]})")
+        status, body = get(alice, path, headers={"Range": "bytes=0-99"}) if path else (0, b"")
+        check(status == 206 and len(body) == 100 and body[4:8] == b"ftyp", f"its stream link serves ranges, without a login ({status}, {len(body)} bytes)")
+        mp4 = fake_log("oppai-mp4")
+        check(any(e.get("range") == "bytes=0-99" for e in mp4) and all(e["referer"].startswith("http://fake-hanime:8080/oppai") for e in mp4),
+              "every request reached oppai.stream with its Referer and the ranges")
+        check(not any(e.get("reason") == "no oppai.stream Referer" for e in fake_log()), "and none was refused")
+
     print("Hentai Haven", flush=True)
     if haven_episode:
         status, source, info = playback_info(alice, haven_episode["Id"])
@@ -360,9 +390,9 @@ def main():
         runtime = (source.get("RunTimeTicks") or 0) / 10_000_000
         check(25 <= runtime <= 35, f"Jellyfin probed its stream: {runtime:.1f}s")
         play_hls(alice, source.get("Path") or haven_link, "its stream link, without a login", anonymous=True)
-        api = [e for e in fake_log("haven-api") if e.get("media") == "haven-test-show-3"]
+        api = [e for e in fake_log("haven-api") if e.get("media") == "haven-only-1"]
         check(api and all("haven_session=1" in e.get("cookie", "") for e in api), "the player's API gave the stream for the player page's keys, with the site's cookies")
-        hls = [e for e in fake_log("hls") if "haven-test-show-3" in e["path"]]
+        hls = [e for e in fake_log("hls") if "haven-only-1" in e["path"]]
         check(hls and all(e["referer"].startswith("http://fake-hanime:8080/haven") for e in hls), "every request reached Hentai Haven with its Referer")
         check(not any(e.get("reason") in ("no Hentai Haven Referer", "bad player keys") for e in fake_log()), "and none was refused")
 
@@ -453,10 +483,18 @@ def main():
     shows_ = channel_items(alice, channel["Id"], t["Id"]) if t else []
     check([s.get("Name") for s in shows_] == ["Test Show"], f"with one folder per series ({[s.get('Name') for s in shows_]})")
     eps = channel_items(alice, channel["Id"], shows_[0]["Id"]) if shows_ else []
-    check([e.get("Name") for e in eps] == ["Test Show 1", "Test Show 2", "Test Show 3"], f"holding the episodes of both sites ({[e.get('Name') for e in eps]})")
-    if len(eps) == 3:
+    check([e.get("Name") for e in eps] == ["Test Show 1", "Test Show 2", "Test Show 3", "Test Show 4"], f"holding the episodes of all sites ({[e.get('Name') for e in eps]})")
+    if len(eps) == 4:
         status, source, _ = playback_info(alice, eps[2]["Id"])
-        check(status == 200 and source.get("Path", "").startswith("http://jellyfin:8096/HanimeTV/HentaiHaven/"), f"the Hentai Haven episode plays from the channel ({status}, {source.get('Path', '')[:60]})")
+        check(status == 200 and source.get("Path", "").startswith("http://jellyfin:8096/HanimeTV/OppaiStream/") and source.get("Container") == "mp4",
+              f"the oppai.stream episode plays from the channel as a file ({status}, {source.get('Path', '')[:60]}, {source.get('Container')})")
+        subtitles = [s for s in source.get("MediaStreams") or [] if s.get("Type") == "Subtitle"]
+        url = (subtitles[0].get("DeliveryUrl") or subtitles[0].get("Path") or "") if subtitles else ""
+        check(subtitles and subtitles[0].get("IsExternal") and url.startswith("http://jellyfin:8096/HanimeTV/OppaiStream/"),
+              f"with its subtitles, through the plugin ({[(s.get('Language'), s.get('DeliveryMethod'), (s.get('DeliveryUrl') or '')[:50]) for s in subtitles]})")
+        if url:
+            status, body = get(alice, url)
+            check(status == 200 and b"Hello from oppai.stream" in body, f"which serves them without a login ({status})")
 
     check(update_config(admin, hentai={"AllowedUsers": []}), "alice is no longer selected")
     wait_for("alice's policy", lambda: not has_channel(policy(admin, alice_id), hentai_channel_id))

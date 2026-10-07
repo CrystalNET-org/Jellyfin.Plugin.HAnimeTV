@@ -1,8 +1,8 @@
 #!/bin/sh
 # Prepares the integration test: Jellyfin's directories under $ROOT with the plugin
-# installed and pointed at the fake hanime.tv, Hentai Haven and Pornhub (fake-hanime.py),
-# and that server's media: an HLS stream per video, an MP4 file and a cover image. The
-# plugin writes its library to $ROOT/library.
+# installed and pointed at the fake hanime.tv, oppai.stream, Hentai Haven and Pornhub
+# (fake-hanime.py), and that server's media: an HLS stream per video, an MP4 file and a
+# cover image. The plugin writes its library to $ROOT/library.
 #
 #   ROOT=/path PLUGIN_DLL=…/Jellyfin.Plugin.HAnimeTV.dll sh prepare.sh
 #
@@ -35,6 +35,7 @@ cat > "$ROOT/config/plugins/configurations/Jellyfin.Plugin.HAnimeTV.xml" <<XML
   <StreamHost>$FAKE_HANIME</StreamHost>
   <Hentai>
     <HentaiHavenUrl>$FAKE_HANIME/haven</HentaiHavenUrl>
+    <OppaiStreamUrl>$FAKE_HANIME/oppai</OppaiStreamUrl>
   </Hentai>
   <Pornhub>
     <ApiUrl>$FAKE_HANIME/ph/webmasters</ApiUrl>
@@ -51,7 +52,7 @@ for slug in test-show-1 test-show-2 hidden-video haven-test-show-3 haven-only-1 
     -f hls -hls_time 2 -hls_playlist_type vod -hls_segment_filename "$ROOT/media/hls/$slug/segment%03d.ts" \
     "$ROOT/media/hls/$slug/index.m3u8"
 done
-# Pornhub's MP4 files: the index first, so players can start before the end
+# Pornhub's and oppai.stream's MP4 files: the index first, so players can start before the end
 mkdir -p "$ROOT/media/media"
 $FFMPEG -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=854x480:rate=24 -f lavfi -i sine=frequency=440 \
   -t 30 -c:v libx264 -preset ultrafast -c:a aac -shortest -movflags +faststart "$ROOT/media/media/ph-mp4.mp4"

@@ -1,7 +1,7 @@
 # End-to-end test of the plugin in the real Jellyfin images (12.1 and 12.2), against a
-# fake hanime.tv, Hentai Haven and Pornhub (tests/integration/fake-hanime.py) that checks the
-# plugin's signatures, sealed handshake, player keys and headers the way the sites do and
-# serves real HLS streams and an MP4 file. CI cannot rely on the real sites, which refuse
+# fake hanime.tv, oppai.stream, Hentai Haven and Pornhub (tests/integration/fake-hanime.py)
+# that checks the plugin's signatures, sealed handshake, player keys and headers the way the
+# sites do and serves real HLS streams, an MP4 file and subtitles. CI cannot rely on the real sites, which refuse
 # datacenter addresses.
 #
 # Catches what unit tests cannot: Jellyfin not reading the library's files as series and

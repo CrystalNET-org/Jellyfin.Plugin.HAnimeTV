@@ -194,6 +194,17 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             Assert.Equal(expected, HentaiHavenPage.EpisodeNumber(text, url));
 
         [Fact]
+        public void Describe_TellsWhatThePageIs()
+        {
+            const string Html = "<html><head><title>Other Site &amp; Co</title><meta name=\"generator\" content=\"Next.js\"></head>"
+                + "<body><a href=\"/hentai/some-show\">A</a><a href=\"https://haven.test/hentai/some-show/1\">B</a><a href=\"https://elsewhere.test/x\">C</a></body></html>";
+
+            Assert.Equal(
+                Html.Length + " characters, titled \"Other Site & Co\", made with Next.js, with links such as /hentai/some-show /hentai/some-show/1",
+                HentaiHavenPage.Describe(Html, new Uri(Site)));
+        }
+
+        [Fact]
         public void IsChallenge_RecognizesCloudflare()
         {
             Assert.True(HentaiHavenPage.IsChallenge("<html><head><title>Just a moment...</title>"));

@@ -6,6 +6,7 @@ using Jellyfin.Plugin.HAnimeTV.Hanime;
 using Jellyfin.Plugin.HAnimeTV.Hentai;
 using Jellyfin.Plugin.HAnimeTV.HentaiHaven;
 using Jellyfin.Plugin.HAnimeTV.Library;
+using Jellyfin.Plugin.HAnimeTV.OppaiStream;
 using Jellyfin.Plugin.HAnimeTV.Pornhub;
 using Jellyfin.Plugin.HAnimeTV.Streaming;
 using MediaBrowser.Common.Api;
@@ -130,6 +131,11 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
                 results.Add(await TestHanimeAsync(hentai, cancellationToken).ConfigureAwait(false));
             }
 
+            if (hentai.OppaiStreamEnabled)
+            {
+                results.Add(await TestOppaiStreamAsync(hentai, cancellationToken).ConfigureAwait(false));
+            }
+
             if (hentai.HentaiHavenEnabled)
             {
                 results.Add(await TestHentaiHavenAsync(hentai, cancellationToken).ConfigureAwait(false));
@@ -195,6 +201,46 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
             catch (HanimeException ex)
             {
                 return new { Name, Ok = false, VideoCount = catalog.Count, TestedVideo = newest.Name, StreamError = ex.Message, client.AccountStatus };
+            }
+        }
+
+        private async Task<object> TestOppaiStreamAsync(HentaiSettings settings, CancellationToken cancellationToken)
+        {
+            const string Name = "oppai.stream";
+            var client = new OppaiStreamClient(_httpClientFactory, () => settings, null, _loggerFactory.CreateLogger<OppaiStreamClient>());
+            HentaiVideo? newest;
+            int listed;
+            try
+            {
+                // The first page of the list and the newest episode: the whole list takes minutes
+                (listed, newest) = await client.SampleAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OppaiStreamException ex)
+            {
+                return new { Name, Ok = false, CatalogError = ex.Message };
+            }
+
+            if (newest is null)
+            {
+                return new { Name, Ok = false, VideoCount = 0, CatalogError = "The search lists no episodes" };
+            }
+
+            try
+            {
+                var media = await client.GetMediaAsync(newest.Id, cancellationToken).ConfigureAwait(false);
+                return new
+                {
+                    Name,
+                    Ok = true,
+                    VideoCount = listed,
+                    TestedVideo = newest.Name,
+                    Streams = media.Streams.Select(s => (s.IsHls ? "HLS " : "MP4 ") + s.Label)
+                        .Concat(media.Subtitles.Select(s => "subtitles: " + s.Label)),
+                };
+            }
+            catch (OppaiStreamException ex)
+            {
+                return new { Name, Ok = false, VideoCount = listed, TestedVideo = newest.Name, StreamError = ex.Message };
             }
         }
 
