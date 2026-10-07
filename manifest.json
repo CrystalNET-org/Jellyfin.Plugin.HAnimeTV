@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/main/images/thumb.png",
     "versions": [
       {
+        "version": "0.1.5.0",
+        "changelog": "- Flag stream links that use Jellyfin's guessed address",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/releases/download/0.1.5/hanime.tv_0.1.5.0.zip",
+        "checksum": "7b3b5e7c3437ecf62eaa8dfbc84ad802",
+        "timestamp": "2026-10-07T13:54:47Z"
+      },
+      {
         "version": "0.1.4.0",
         "changelog": "- Replace the channel with a shows library: series, episodes and metadata",
         "targetAbi": "12.1.0.0",
