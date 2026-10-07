@@ -247,6 +247,28 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
                 .Select(url => new HentaiHavenStream(url, string.Empty, Height(url))));
 
         /// <summary>
+        /// Describes a page that is not what was expected: its title, what made it, and some of
+        /// its links, so that a changed or different site can be told apart.
+        /// </summary>
+        public static string Describe(string html, Uri page)
+        {
+            var title = TitleTag().Match(html) is { Success: true } t ? Text(t.Groups["title"].Value) : null;
+            var generator = Meta(html, "generator");
+            var links = Anchor().Matches(html)
+                .Select(a => Absolute(page, a.Groups["href"].Value))
+                .OfType<string>()
+                .Where(l => Uri.TryCreate(l, UriKind.Absolute, out var u) && string.Equals(u.Host, page.Host, StringComparison.OrdinalIgnoreCase) && u.AbsolutePath.Length > 1)
+                .Select(l => new Uri(l).PathAndQuery)
+                .Distinct(StringComparer.Ordinal)
+                .Take(8)
+                .ToList();
+            return $"{html.Length} characters"
+                + (title is { Length: > 0 } ? $", titled \"{(title.Length > 80 ? title[..80] : title)}\"" : ", without a title")
+                + (generator is not null ? $", made with {generator}" : string.Empty)
+                + (links.Count > 0 ? ", with links such as " + string.Join(" ", links) : ", without links to its own pages");
+        }
+
+        /// <summary>
         /// Gets whether the page is a bot check (Cloudflare's) rather than the site.
         /// </summary>
         public static bool IsChallenge(string html) =>

@@ -262,7 +262,7 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
                 {
                     if (page == 1)
                     {
-                        throw new HentaiHavenException($"Found no series on {url}; is {site.Host} a Hentai Haven site?");
+                        throw new HentaiHavenException($"Found no series on {url}; is {site.Host} a Hentai Haven site? It answered {HentaiHavenPage.Describe(html, url)}");
                     }
 
                     break;
