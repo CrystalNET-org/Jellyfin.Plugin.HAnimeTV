@@ -26,16 +26,17 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
     /// Reads the catalog and the streams from Hentai Haven's pages.
     /// </summary>
     /// <remarks>
-    /// The catalog is the site's list of all series (its search for nothing, newest first)
-    /// and each series' page. Pages of series whose listed episodes did not change are read
-    /// once a month only, from a copy kept on disk, so a sync reads the list and what is new.
+    /// The catalog is the home page's list of every episode, newest first (<c>?page=N</c>), and
+    /// each episode's page for its details. Episode pages are kept on disk and read once
+    /// (again after 30 days), so a sync reads the list and what is new. The videos are on a
+    /// separate host (nhplayer), whose player page carries each video's address.
     /// </remarks>
     public sealed class HentaiHavenClient
     {
         private const int MaxListingPages = 500;
         private const int Parallelism = 4;
 
-        private static readonly TimeSpan SeriesMaxAge = TimeSpan.FromDays(30);
+        private static readonly TimeSpan EpisodeMaxAge = TimeSpan.FromDays(30);
         private static readonly TimeSpan StreamCacheTime = TimeSpan.FromMinutes(10);
 
         private readonly SiteHttp _http;
@@ -46,9 +47,14 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
         private readonly SemaphoreSlim _catalogLock = new(1, 1);
         private readonly ConcurrentDictionary<string, (IReadOnlyList<HentaiHavenStream> Streams, DateTimeOffset Time)> _streams = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// The pages the video hosts expect as Referer, by host, learned from the players.
+        /// </summary>
+        private readonly ConcurrentDictionary<string, Uri> _referers = new(StringComparer.OrdinalIgnoreCase);
+
         private Catalog? _catalog;
 
-        /// <param name="cacheFile">Where the series' pages are kept between restarts; null for nowhere.</param>
+        /// <param name="cacheFile">Where the episodes' pages are kept between restarts; null for nowhere.</param>
         public HentaiHavenClient(IHttpClientFactory httpClientFactory, Func<HentaiSettings> configuration, string? cacheFile, ILogger logger, TimeProvider? time = null)
         {
             _http = new SiteHttp(httpClientFactory, (message, inner) => inner is null ? new HentaiHavenException(message) : new HentaiHavenException(message, inner));
@@ -65,7 +71,7 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
         public string? CatalogError { get; private set; }
 
         /// <summary>
-        /// Gets the site's address, without a trailing slash.
+        /// Gets the site's address, with a trailing slash.
         /// </summary>
         public Uri SiteUrl
         {
@@ -101,12 +107,12 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
 
                 try
                 {
-                    var previous = _catalog?.Site == site.AbsoluteUri ? _catalog.Series : Array.Empty<HentaiHavenSeries>();
-                    var series = await CrawlAsync(site, previous, int.MaxValue, cancellationToken).ConfigureAwait(false);
-                    _catalog = new Catalog(site.AbsoluteUri, _time.GetUtcNow(), series, ToVideos(series, site));
+                    var previous = _catalog?.Site == site.AbsoluteUri ? _catalog.Episodes : Array.Empty<HentaiHavenEpisode>();
+                    var episodes = await CrawlAsync(site, previous, cancellationToken).ConfigureAwait(false);
+                    _catalog = new Catalog(site.AbsoluteUri, _time.GetUtcNow(), episodes, ToVideos(episodes, site));
                     CatalogError = null;
-                    SaveCache(_catalog);
-                    _logger.LogInformation("Hentai Haven: read the catalog, {Series} series, {Episodes} episodes", series.Count, _catalog.Videos.Count);
+                    SiteHttp.SaveJson(_cacheFile, new StoredCatalog { Site = _catalog.Site, Episodes = episodes.ToList() }, _logger, "Hentai Haven");
+                    _logger.LogInformation("Hentai Haven: read the catalog, {Episodes} episodes", episodes.Count);
                     return _catalog.Videos;
                 }
                 catch (Exception ex) when (ex is HentaiHavenException or HttpRequestException or TaskCanceledException && !cancellationToken.IsCancellationRequested)
@@ -128,20 +134,27 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
         }
 
         /// <summary>
-        /// Reads the first page of the list of series and the newest series' page, bypassing
-        /// the cache; for testing the settings.
+        /// Reads the newest episodes (the first page of the list, the newest's page),
+        /// bypassing the cache; for testing the settings.
         /// </summary>
-        public async Task<IReadOnlyList<HentaiVideo>> SampleAsync(CancellationToken cancellationToken)
+        public async Task<(int Listed, HentaiVideo? Newest)> SampleAsync(CancellationToken cancellationToken)
         {
             var site = SiteUrl;
-            var series = await CrawlAsync(site, Array.Empty<HentaiHavenSeries>(), 1, cancellationToken).ConfigureAwait(false);
-            return ToVideos(series.Take(1).ToList(), site);
+            var (listing, _) = await ListPageAsync(site, 1, cancellationToken).ConfigureAwait(false);
+            if (listing.Count == 0)
+            {
+                var html = await _http.GetPageAsync(site, null, null, cancellationToken).ConfigureAwait(false);
+                throw new HentaiHavenException($"Found no episodes on {site}; is {site.Host} Hentai Haven? It answered {HentaiHavenPage.Describe(html, site)}");
+            }
+
+            var episode = await GetEpisodeAsync(listing[0], site, cancellationToken).ConfigureAwait(false);
+            return (listing.Count, ToVideos([episode], site)[0]);
         }
 
         /// <summary>
         /// Gets an episode's streams, best first.
         /// </summary>
-        /// <param name="path">The episode page's path, relative to the site.</param>
+        /// <param name="path">The episode page's address, relative to the site.</param>
         /// <exception cref="HentaiHavenException">The episode has no stream.</exception>
         public async Task<IReadOnlyList<HentaiHavenStream>> GetStreamsAsync(string path, CancellationToken cancellationToken)
         {
@@ -151,34 +164,22 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
                 return cached.Streams;
             }
 
-            var cookies = new Dictionary<string, string>(StringComparer.Ordinal);
-            var html = await _http.GetPageAsync(page, null, cookies, cancellationToken).ConfigureAwait(false);
-            var streams = Array.Empty<HentaiHavenStream>() as IReadOnlyList<HentaiHavenStream>;
-            var player = HentaiHavenPage.PlayerFrame(html, page);
-            var playerHtml = html;
-            if (player is not null)
-            {
-                playerHtml = await _http.GetPageAsync(player, page, cookies, cancellationToken).ConfigureAwait(false);
-            }
+            var html = await _http.GetPageAsync(page, SiteUrl, null, cancellationToken).ConfigureAwait(false);
+            var player = HentaiHavenPage.Episode(html, page).Player
+                ?? throw new HentaiHavenException("The episode's page has no player; " + SiteUrl.Host + " answered " + HentaiHavenPage.Describe(html, page));
 
-            if (HentaiHavenPage.PlayerKeys(playerHtml) is { } keys)
-            {
-                var api = player is not null && player.AbsolutePath.Contains("/player-logic/", StringComparison.Ordinal)
-                    ? new Uri(player, "api.php")
-                    : new Uri(SiteUrl, "wp-content/plugins/player-logic/api.php");
-                streams = await GetApiStreamsAsync(api, player ?? page, keys, cookies, cancellationToken).ConfigureAwait(false);
-            }
-
+            var streams = await GetPlayerStreamsAsync(player, page, cancellationToken).ConfigureAwait(false);
             if (streams.Count == 0)
             {
-                streams = HentaiHavenPage.DirectStreams(playerHtml, player ?? page);
+                throw new HentaiHavenException($"The player at {player.Host} has no video for the episode");
             }
 
-            if (streams.Count == 0)
+            foreach (var stream in streams)
             {
-                throw new HentaiHavenException(player is null
-                    ? "The episode's page has no player; is " + SiteUrl.Host + " a Hentai Haven site?"
-                    : "The player of the episode returned no stream");
+                if (Uri.TryCreate(stream.Url, UriKind.Absolute, out var url) && stream.Referer is not null)
+                {
+                    _referers[url.Host] = new Uri(stream.Referer);
+                }
             }
 
             foreach (var old in _streams.Where(e => _time.GetUtcNow() - e.Value.Time >= StreamCacheTime).ToList())
@@ -191,11 +192,11 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
         }
 
         /// <summary>
-        /// Fetches a stream's playlist, segment or file with the headers of the site's player.
-        /// The caller disposes the response.
+        /// Fetches a stream's file or playlist with the Referer its host expects: the player's
+        /// page for the video hosts, else the site. The caller disposes the response.
         /// </summary>
         public Task<HttpResponseMessage> FetchMediaAsync(Uri url, string? range, CancellationToken cancellationToken) =>
-            _http.FetchMediaAsync(url, SiteUrl, range, cancellationToken);
+            _http.FetchMediaAsync(url, _referers.TryGetValue(url.Host, out var referer) ? referer : SiteUrl, range, cancellationToken);
 
         /// <summary>
         /// Gets an episode page's address relative to the site, as stream links carry it.
@@ -217,160 +218,174 @@ namespace Jellyfin.Plugin.HAnimeTV.HentaiHaven
             return url;
         }
 
-        internal static IReadOnlyList<HentaiVideo> ToVideos(IReadOnlyList<HentaiHavenSeries> catalog, Uri site)
-        {
-            var videos = new List<HentaiVideo>();
-            foreach (var series in catalog)
+        internal static IReadOnlyList<HentaiVideo> ToVideos(IReadOnlyList<HentaiHavenEpisode> episodes, Uri site) =>
+            episodes.Select(e => new HentaiVideo
             {
-                foreach (var episode in series.Episodes)
+                Source = HentaiSource.HentaiHaven,
+                Id = RelativePath(site, e.Url),
+                Name = e.SeriesName + " " + e.Number.ToString(CultureInfo.InvariantCulture),
+                SeriesName = e.SeriesName,
+                EpisodeNumber = e.Number,
+                PageUrl = e.Url,
+                Description = e.Description,
+                Brand = e.Studio,
+                Tags = e.Genres,
+                PosterUrl = e.PosterUrl ?? e.ThumbnailUrl,
+                ThumbnailUrl = e.ThumbnailUrl ?? e.PosterUrl,
+                Views = e.Views,
+                Likes = e.Likes,
+                Dislikes = e.Dislikes,
+                IsCensored = e.Genres.Contains("censored", StringComparer.OrdinalIgnoreCase),
+                CreatedAt = e.UploadedAt ?? e.ReleasedAt,
+                ReleasedAt = e.ReleasedAt ?? e.UploadedAt,
+                // nhplayer serves MP4 files; the stream link handles a playlist as well
+                StreamIsFile = true,
+            }).ToList();
+
+        /// <summary>
+        /// Reads the player's page: its servers' players (whose page may name the video's
+        /// streams), else the video's address the server links carry, else addresses on the page.
+        /// </summary>
+        private async Task<IReadOnlyList<HentaiHavenStream>> GetPlayerStreamsAsync(Uri player, Uri episode, CancellationToken cancellationToken)
+        {
+            var html = await _http.GetPageAsync(player, episode, null, cancellationToken).ConfigureAwait(false);
+            foreach (var (server, video) in HentaiHavenPage.PlayerServers(html, player))
+            {
+                try
                 {
-                    var released = episode.ReleasedAt ?? (series.Year is { } year ? new DateTime(year, 1, 1, 0, 0, 0, DateTimeKind.Utc) : null);
-                    videos.Add(new HentaiVideo
+                    var serverHtml = await _http.GetPageAsync(server, player, null, cancellationToken).ConfigureAwait(false);
+                    if (HentaiHavenPage.DirectStreams(serverHtml, server) is { Count: > 0 } direct)
                     {
-                        Source = HentaiSource.HentaiHaven,
-                        Id = RelativePath(site, episode.Url),
-                        Name = series.Title + " " + episode.Number.ToString(CultureInfo.InvariantCulture),
-                        SeriesName = series.Title,
-                        EpisodeNumber = episode.Number,
-                        PageUrl = episode.Url,
-                        Description = series.Description,
-                        Brand = series.Studio,
-                        Tags = series.Genres,
-                        PosterUrl = series.PosterUrl ?? episode.ThumbnailUrl,
-                        ThumbnailUrl = episode.ThumbnailUrl ?? series.PosterUrl,
-                        IsCensored = series.Genres.Contains("censored", StringComparer.OrdinalIgnoreCase),
-                        CreatedAt = episode.ReleasedAt,
-                        ReleasedAt = released,
-                    });
+                        return direct;
+                    }
+                }
+                catch (HentaiHavenException ex)
+                {
+                    _logger.LogDebug("Hentai Haven: the player {Player} failed: {Error}", server, ex.Message);
+                }
+
+                if (video is not null)
+                {
+                    return [new HentaiHavenStream(video, "MP4", 0, player.AbsoluteUri)];
                 }
             }
 
-            return videos;
+            return HentaiHavenPage.DirectStreams(html, player);
         }
 
-        private async Task<IReadOnlyList<HentaiHavenSeries>> CrawlAsync(Uri site, IReadOnlyList<HentaiHavenSeries> previous, int maxPages, CancellationToken cancellationToken)
+        private async Task<IReadOnlyList<HentaiHavenEpisode>> CrawlAsync(Uri site, IReadOnlyList<HentaiHavenEpisode> previous, CancellationToken cancellationToken)
         {
-            // The list of all series: the site's search for nothing, most recently updated first
-            var listings = new List<HentaiHavenListing>();
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            for (var page = 1; page <= Math.Min(maxPages, MaxListingPages); page++)
+            // Every episode, newest first: the first page says how many pages there are
+            var (first, lastPage) = await ListPageAsync(site, 1, cancellationToken).ConfigureAwait(false);
+            if (first.Count == 0)
             {
-                var url = new Uri(site, (page == 1 ? string.Empty : "page/" + page.ToString(CultureInfo.InvariantCulture) + "/") + "?s=&post_type=wp-manga&m_orderby=latest");
-                var html = await _http.GetPageAsync(url, site, null, cancellationToken, notFoundIsEmpty: page > 1).ConfigureAwait(false);
-                var found = HentaiHavenPage.Listing(html, url).Where(l => seen.Add(l.Url)).ToList();
-                if (found.Count == 0)
-                {
-                    if (page == 1)
-                    {
-                        throw new HentaiHavenException($"Found no series on {url}; is {site.Host} a Hentai Haven site? It answered {HentaiHavenPage.Describe(html, url)}");
-                    }
-
-                    break;
-                }
-
-                listings.AddRange(found);
+                var html = await _http.GetPageAsync(site, null, null, cancellationToken).ConfigureAwait(false);
+                throw new HentaiHavenException($"Found no episodes on {site}; is {site.Host} Hentai Haven? It answered {HentaiHavenPage.Describe(html, site)}");
             }
 
-            var known = previous.GroupBy(s => s.Url, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+            var pages = new IReadOnlyList<HentaiHavenListing>[Math.Min(lastPage, MaxListingPages)];
+            pages[0] = first;
+            await Parallel.ForEachAsync(
+                Enumerable.Range(2, Math.Max(0, pages.Length - 1)),
+                new ParallelOptions { MaxDegreeOfParallelism = Parallelism, CancellationToken = cancellationToken },
+                async (page, token) => pages[page - 1] = (await ListPageAsync(site, page, token).ConfigureAwait(false)).Listing).ConfigureAwait(false);
+
+            var listings = pages.SelectMany(p => p).DistinctBy(l => l.Url).ToList();
+            var known = previous.GroupBy(e => e.Url, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
             var now = _time.GetUtcNow();
-            var result = new HentaiHavenSeries[listings.Count];
+            var result = new HentaiHavenEpisode?[listings.Count];
             var read = 0;
+            var failed = 0;
             await Parallel.ForEachAsync(
                 listings.Select((listing, index) => (listing, index)),
                 new ParallelOptions { MaxDegreeOfParallelism = Parallelism, CancellationToken = cancellationToken },
                 async (item, token) =>
                 {
                     var (listing, index) = item;
-                    if (known.TryGetValue(listing.Url, out var cached)
-                        && now - cached.FetchedAt < SeriesMaxAge
-                        && listing.EpisodeUrls.All(e => cached.Episodes.Any(c => c.Url == e)))
+                    known.TryGetValue(listing.Url, out var cached);
+                    if (cached is not null && now - cached.FetchedAt < EpisodeMaxAge)
                     {
                         result[index] = cached;
                         return;
                     }
 
-                    result[index] = await GetSeriesAsync(new Uri(listing.Url), site, token).ConfigureAwait(false);
-                    Interlocked.Increment(ref read);
+                    try
+                    {
+                        result[index] = await GetEpisodeAsync(listing, site, token).ConfigureAwait(false);
+                        Interlocked.Increment(ref read);
+                    }
+                    catch (HentaiHavenException ex)
+                    {
+                        // One missing page does not fail the catalog: the episode keeps its last
+                        // read, or waits for the next sync
+                        _logger.LogDebug("Hentai Haven: could not read {Url}: {Error}", listing.Url, ex.Message);
+                        result[index] = cached;
+                        Interlocked.Increment(ref failed);
+                    }
                 }).ConfigureAwait(false);
 
-            _logger.LogInformation("Hentai Haven: {Series} series listed, {Read} series pages read", listings.Count, read);
-            return result.Where(s => s.Episodes.Count > 0).ToList();
+            _logger.LogInformation("Hentai Haven: {Episodes} episodes listed, {Read} episode pages read, {Failed} failed", listings.Count, read, failed);
+            if (failed > 0 && result.All(e => e is null))
+            {
+                throw new HentaiHavenException($"Could not read any of the {failed} episode pages; see the log");
+            }
+
+            return result.OfType<HentaiHavenEpisode>().ToList();
         }
 
-        private async Task<HentaiHavenSeries> GetSeriesAsync(Uri url, Uri site, CancellationToken cancellationToken)
+        private async Task<(IReadOnlyList<HentaiHavenListing> Listing, int LastPage)> ListPageAsync(Uri site, int page, CancellationToken cancellationToken)
         {
+            var url = page == 1 ? site : new Uri(site, "?page=" + page.ToString(CultureInfo.InvariantCulture));
+            var html = await _http.GetPageAsync(url, site, null, cancellationToken, notFoundIsEmpty: page > 1).ConfigureAwait(false);
+            return (HentaiHavenPage.Listing(html, url), HentaiHavenPage.LastPage(html));
+        }
+
+        private async Task<HentaiHavenEpisode> GetEpisodeAsync(HentaiHavenListing listing, Uri site, CancellationToken cancellationToken)
+        {
+            var url = new Uri(listing.Url);
             var html = await _http.GetPageAsync(url, site, null, cancellationToken).ConfigureAwait(false);
-            var now = _time.GetUtcNow();
-            var series = HentaiHavenPage.Series(html, url, now);
-            if (series.Episodes.Count > 0)
+            var content = HentaiHavenPage.Episode(html, url);
+            var title = content.Title ?? listing.Title;
+            var (series, number) = HentaiHavenPage.SeriesAndNumber(title);
+            return new HentaiHavenEpisode
             {
-                return series;
-            }
-
-            // Themes that load the episodes after the page
-            var episodes = Array.Empty<HentaiHavenEpisode>() as IReadOnlyList<HentaiHavenEpisode>;
-            try
-            {
-                episodes = HentaiHavenPage.Episodes(await _http.PostAsync(new Uri(url, "ajax/chapters/"), url, new FormUrlEncodedContent([]), null, cancellationToken).ConfigureAwait(false), url, now);
-                if (episodes.Count == 0 && HentaiHavenPage.ChaptersHolderId(html) is { } id)
-                {
-                    var form = new Dictionary<string, string> { ["action"] = "manga_get_chapters", ["manga"] = id };
-                    episodes = HentaiHavenPage.Episodes(await _http.PostAsync(new Uri(site, "wp-admin/admin-ajax.php"), url, new FormUrlEncodedContent(form), null, cancellationToken).ConfigureAwait(false), url, now);
-                }
-            }
-            catch (HentaiHavenException ex)
-            {
-                _logger.LogDebug("Hentai Haven: no episodes for {Url}: {Error}", url, ex.Message);
-            }
-
-            return new HentaiHavenSeries
-            {
-                Url = series.Url,
-                Title = series.Title,
-                Description = series.Description,
-                PosterUrl = series.PosterUrl,
-                Genres = series.Genres,
-                Studio = series.Studio,
-                Year = series.Year,
-                Episodes = episodes,
-                FetchedAt = series.FetchedAt,
+                Url = listing.Url,
+                Title = title,
+                SeriesName = content.SeriesName ?? series,
+                Number = number ?? listing.Number ?? HentaiHavenPage.NumberInUrl(listing.Url) ?? 1,
+                Description = content.Description,
+                Genres = content.Genres,
+                Studio = content.Studio,
+                PosterUrl = content.PosterUrl ?? listing.ThumbnailUrl,
+                ThumbnailUrl = content.ThumbnailUrl,
+                ReleasedAt = content.ReleasedAt,
+                UploadedAt = content.UploadedAt,
+                Views = content.Views,
+                Likes = content.Likes,
+                Dislikes = content.Dislikes,
+                FetchedAt = _time.GetUtcNow(),
             };
-        }
-
-        private async Task<IReadOnlyList<HentaiHavenStream>> GetApiStreamsAsync(Uri api, Uri player, (string En, string Iv) keys, Dictionary<string, string> cookies, CancellationToken cancellationToken)
-        {
-            var form = new MultipartFormDataContent
-            {
-                { new StringContent("zarat_get_data_player_ajax"), "action" },
-                { new StringContent(keys.En), "a" },
-                { new StringContent(keys.Iv), "b" },
-            };
-            var body = await _http.PostAsync(api, player, form, cookies, cancellationToken, ajax: false).ConfigureAwait(false);
-            return HentaiHavenPage.ApiSources(body, api);
         }
 
         private Catalog? LoadCache()
         {
             var stored = SiteHttp.LoadJson<StoredCatalog>(_cacheFile, _logger, "Hentai Haven");
-            if (stored?.Site is null || stored.Series is null || !Uri.TryCreate(stored.Site, UriKind.Absolute, out var site))
+            if (stored?.Site is null || stored.Episodes is null || !Uri.TryCreate(stored.Site, UriKind.Absolute, out var site))
             {
                 return null;
             }
 
             // Old enough to be read again, but there if reading fails
-            return new Catalog(stored.Site, DateTimeOffset.MinValue, stored.Series, ToVideos(stored.Series, site));
+            return new Catalog(stored.Site, DateTimeOffset.MinValue, stored.Episodes, ToVideos(stored.Episodes, site));
         }
 
-        private void SaveCache(Catalog catalog) =>
-            SiteHttp.SaveJson(_cacheFile, new StoredCatalog { Site = catalog.Site, Series = catalog.Series.ToList() }, _logger, "Hentai Haven");
-
-        private sealed record Catalog(string Site, DateTimeOffset FetchedAt, IReadOnlyList<HentaiHavenSeries> Series, IReadOnlyList<HentaiVideo> Videos);
+        private sealed record Catalog(string Site, DateTimeOffset FetchedAt, IReadOnlyList<HentaiHavenEpisode> Episodes, IReadOnlyList<HentaiVideo> Videos);
 
         private sealed class StoredCatalog
         {
             public string? Site { get; set; }
 
-            public List<HentaiHavenSeries>? Series { get; set; }
+            public List<HentaiHavenEpisode>? Episodes { get; set; }
         }
     }
 }

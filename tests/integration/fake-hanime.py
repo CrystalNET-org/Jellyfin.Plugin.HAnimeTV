@@ -6,10 +6,12 @@ Serves what the plugin uses, and checks its requests the way the sites do:
 - GET  /api/v11/search_hvs   hanime.tv's catalog; needs a valid app2 signature
 - POST /api/v11/handshake    a video's streams; needs a valid web2 signature and a sealed
                              token, answers with the sources sealed in the X-Token header
-- GET  /haven/...            Hentai Haven (WordPress with the Madara theme): the list of
-                             series, series and episode pages, the player page with its keys
-- POST /haven/wp-content/plugins/player-logic/api.php
-                             the player's API: the streams for the keys of the player page
+- GET  /haven/, /haven/?page=N  Hentai Haven's list of every episode, newest first
+- GET  /haven/watch/<slug>-episode-<n>/  its episode pages, with the player's frame
+- GET  /nhplayer/v/<id>/     the video host's player page: its server links carry the video's
+                             address ("address|expiry|signature" in base64)
+- GET  /nhplayer/player.php  the server's player (names no address here)
+- GET  /nhplayer/media/<name>.mp4  its MP4 files, with ranges; need the player page as Referer
 - GET  /oppai/actions/search.php  oppai.stream's search: every episode, newest first
 - GET  /oppai/watch?e=…      oppai.stream's episode pages, with "availableres" and subtitles
 - GET  /oppai/media/…, /oppai/subs/…  its MP4 files (with ranges) and subtitles; need its Referer
@@ -18,8 +20,8 @@ Serves what the plugin uses, and checks its requests the way the sites do:
 - GET  /ph/video/get_media   Pornhub's list of MP4 files
 - GET  /hls/<name>/...       the HLS streams prepared by prepare.sh; need the plugin's
                              browser User-Agent, which Jellyfin must pass on to ffmpeg, and
-                             for Hentai Haven ("haven-…") its Referer, for Pornhub ("ph-…")
-                             Pornhub's Origin and Referer (412 without, as Pornhub's CDN)
+                             for Pornhub ("ph-…") Pornhub's Origin and Referer (412 without,
+                             as Pornhub's CDN)
 - GET  /media/<name>.mp4     MP4 files, with ranges; Pornhub's headers as above
 - GET  /images/<name>        cover images
 
@@ -32,7 +34,6 @@ import base64
 import hashlib
 import json
 import os
-import re
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -66,13 +67,12 @@ CATALOG = [
 ]
 
 
-# Hentai Haven: "Test Show" episodes 2 (also on hanime.tv, which wins) and 3 (only here), and
-# a series of its own. The list's second page does not exist
-HAVEN_SERIES = {
-    "test-show": {"title": "Test Show", "episodes": [2, 3], "media": {2: "test-show-2", 3: "haven-test-show-3"}},
-    "haven-only": {"title": "Haven Only", "episodes": [1], "media": {1: "haven-only-1"}},
-}
-HAVEN_KEYS = {}  # en -> media, as the player page hands them out
+# Hentai Haven, newest first over two pages: "Test Show" 3 (oppai.stream has it too and wins),
+# "Haven Only" 1 (only here) and "Test Show" 2 (hanime.tv has it too and wins)
+HAVEN_PAGES = [[("test-show", "Test Show", 3), ("haven-only", "Haven Only", 1)], [("test-show", "Test Show", 2)]]
+HAVEN_EPISODES = {f"{slug}-episode-{n}": (title, n) for page in HAVEN_PAGES for slug, title, n in page}
+NHPLAYER = f"{BASE}/nhplayer"
+
 
 # oppai.stream, newest first: "Test Show" 3 (Hentai Haven has it too: oppai.stream wins) and 4,
 # and a series of its own. Episode 3 has English subtitles
@@ -108,28 +108,35 @@ PORNHUB_VIDEOS = [
 ]
 
 
-def haven_listing():
-    items = "".join(f"""
-      <div class="row c-tabs-item__content">
-        <div class="tab-thumb"><a href="{HAVEN}/watch/{slug}/" title="{s['title']}"><img data-src="{BASE}/images/cover.jpg"></a></div>
-        <div class="tab-summary"><div class="post-title"><h3 class="h4"><a href="{HAVEN}/watch/{slug}/">{s['title']}</a></h3></div></div>
-        <div class="tab-meta"><span class="font-meta chapter"><a href="{HAVEN}/watch/{slug}/episode-{s['episodes'][-1]}/">Episode {s['episodes'][-1]}</a></span></div>
-      </div>""" for slug, s in HAVEN_SERIES.items())
-    return f"<html><body><div class=\"c-tabs-item\">{items}</div></body></html>"
+def haven_home(page):
+    cards = "".join(f"""<a class="a_item" href="/haven/watch/{slug}-episode-{n}/"><div class="v_item"><div class="video_cover">"""
+                    f"""<img alt="{title} Episode {n}" loading="lazy" class="lazy" src="/images/cover.jpg"/><div class="card_badges">"""
+                    f"""<span class="card_badge">EP {n}</span></div></div><div class="video_title">{title} Episode {n}</div></div></a>"""
+                    for slug, title, n in HAVEN_PAGES[page - 1])
+    pages = "".join(f'<li class="page-item"><a class="page-link" href="/haven/?page={p}">{p}</a></li>' for p in range(1, len(HAVEN_PAGES) + 1))
+    return f'<html><body><div class="sub_overview">{cards}</div><ul class="pagination">{pages}</ul></body></html>'
 
 
-def haven_series(slug):
-    s = HAVEN_SERIES[slug]
-    episodes = "".join(f"""
-      <li class="wp-manga-chapter"><a href="{HAVEN}/watch/{slug}/episode-{n}/">Episode {n}</a>
-        <span class="chapter-release-date"><i>March {n}, 2024</i></span></li>""" for n in reversed(s["episodes"]))
-    return f"""<html><head><meta property="og:title" content="{s['title']} - Hentai Haven"></head><body>
-      <div class="post-title"><h1>{s['title']}</h1></div>
-      <div class="summary_image"><a href="#"><img data-src="{BASE}/images/cover.jpg"></a></div>
-      <div class="post-content_item"><div class="summary-heading"><h5>Studio</h5></div><div class="summary-content"><a href="#">Haven Studio</a></div></div>
-      <div class="post-content_item"><div class="summary-heading"><h5>Genre(s)</h5></div><div class="summary-content"><div class="genres-content"><a href="#">Vanilla</a></div></div></div>
-      <div class="description-summary"><div class="summary__content"><p>From Hentai Haven.</p></div></div>
-      <ul class="main version-chap">{episodes}</ul></body></html>"""
+def haven_episode(slug):
+    title, n = HAVEN_EPISODES[slug]
+    return f"""<html><body><div class="video"><div class="left">
+      <div class="watch-ad-top"><iframe name="spot_id_1" src="//ads.invalid/get/1"></iframe></div>
+      <div class="player"><iframe allowfullscreen="" loading="lazy" src="{NHPLAYER}/v/{slug}/"></iframe></div>
+      <div class="info_top"><h1 class="video_title">{title} Episode {n}</h1><div class="buttons"><div class="button_item like"><span class="ln">12</span></div></div></div>
+      <div class="info_bottom"><div class="cover"><img alt="cover" class="lazy" src="/images/cover.jpg"/></div><div class="r_info_b"><div class="flex_wrap">
+        <div class="r_item half"><span>Brand</span><span class="sub_r"><a href="/haven/brand/haven-studio/">Haven Studio</a></span></div>
+        <div class="r_item half"><span>Series</span><span class="sub_r"><a href="/haven/series/{slug}/">{title}</a></span></div>
+        <div class="r_item half"><span>Release Date</span><span class="sub_r">2024-03-0{n}</span></div>
+        <div class="r_item half"><span>Upload Date</span><span class="sub_r">2024-04-0{n}</span></div></div></div></div>
+      <div class="video_tags"><a href="/haven/genre/vanilla/">vanilla</a><div class="video_description"><p>From Hentai Haven.</p></div></div>
+      </div></div></body></html>"""
+
+
+def nhplayer_page(slug):
+    vid = base64.b64encode(f"{NHPLAYER}/media/{slug}.mp4|1791477583|cb4b317cdc15fee3".encode()).decode()
+    return f"""<html><body><div class="frame"><header class="header"><div class="servers"><ul>
+      <li data-id="/nhplayer/player.php?vid={vid}&i=aW1n&type=">Main Player</li></ul></div></header>
+      <iframe src="" allowFullScreen="true"></iframe></div></body></html>"""
 
 
 def b64url(data):
@@ -206,30 +213,34 @@ class Handler(BaseHTTPRequestHandler):
         html = "text/html; charset=utf-8"
 
         # Hentai Haven
-        if path == "/haven/" and query.get("post_type") == ["wp-manga"]:
-            self.log(status=200, kind="haven-list")
-            return self.reply(200, haven_listing().encode(), html)
-        if path.startswith("/haven/watch/"):
-            parts = path[len("/haven/watch/"):].strip("/").split("/")
-            series = HAVEN_SERIES.get(parts[0])
-            if series and len(parts) == 1:
-                self.log(status=200, kind="haven-series", slug=parts[0])
-                return self.reply(200, haven_series(parts[0]).encode(), html)
-            if series and len(parts) == 2 and parts[1].startswith("episode-") and int(parts[1][8:]) in series["episodes"]:
-                self.log(status=200, kind="haven-episode")
-                player = f"{HAVEN}/wp-content/plugins/player-logic/player.php?data={parts[0]}-{parts[1][8:]}"
-                return self.reply(200, f'<html><body><div class="player_logic_item"><iframe src="{player}"></iframe></div></body></html>'.encode(), html,
-                                  {"Set-Cookie": "haven_session=1; path=/"})
-        if path == "/haven/wp-content/plugins/player-logic/player.php":
-            slug, _, number = query.get("data", [""])[0].rpartition("-")
-            media = HAVEN_SERIES.get(slug, {}).get("media", {}).get(int(number or 0))
-            if not media:
+        if path == "/haven/":
+            page = int(query.get("page", ["1"])[0])
+            if not 1 <= page <= len(HAVEN_PAGES):
                 self.log(status=404)
-                return self.reply(404)
-            en = b64url(os.urandom(12))
-            HAVEN_KEYS[en] = media
-            self.log(status=200, kind="haven-player")
-            return self.reply(200, f"<html><body><script type=\"text/javascript\">var en = '{en}';\nvar iv = 'iv-{en}';</script></body></html>".encode(), html)
+                return self.reply(404, b"<html>Not found</html>", html)
+            self.log(status=200, kind="haven-list", page=page)
+            return self.reply(200, haven_home(page).encode(), html)
+        if path.startswith("/haven/watch/"):
+            slug = path[len("/haven/watch/"):].strip("/")
+            if slug not in HAVEN_EPISODES:
+                self.log(status=404)
+                return self.reply(404, b"<html>Not found</html>", html)
+            self.log(status=200, kind="haven-episode", slug=slug)
+            return self.reply(200, haven_episode(slug).encode(), html)
+        if path.startswith("/nhplayer/v/"):
+            slug = path[len("/nhplayer/v/"):].strip("/")
+            if slug not in HAVEN_EPISODES or not self.headers.get("Referer", "").startswith(f"{HAVEN}/watch/"):
+                return self.deny("no Hentai Haven Referer")
+            self.log(status=200, kind="nhplayer-page", slug=slug)
+            return self.reply(200, nhplayer_page(slug).encode(), html)
+        if path == "/nhplayer/player.php":
+            self.log(status=200, kind="nhplayer-server")
+            return self.reply(200, b'<html><body><div id="player"></div><script src="/nhplayer/app.js"></script></body></html>', html)
+        if path.startswith("/nhplayer/media/"):
+            if not self.headers.get("Referer", "").startswith(f"{NHPLAYER}/v/"):
+                return self.deny("no nhplayer Referer")
+            self.log(status=206 if self.headers.get("Range") else 200, kind="haven-mp4", range=self.headers.get("Range", ""))
+            return self.reply_file(os.path.join(MEDIA_DIR, "media", "ph-mp4.mp4"), "video/mp4")
 
         # oppai.stream
         if path == "/oppai/actions/search.php":
@@ -301,8 +312,6 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/hls/") or path.startswith("/images/"):
             if path.startswith("/hls/") and "Mozilla" not in self.headers.get("User-Agent", ""):
                 return self.deny("no browser User-Agent")
-            if path.startswith("/hls/haven-") and not self.headers.get("Referer", "").startswith(HAVEN):
-                return self.deny("no Hentai Haven Referer")
             if path.startswith("/hls/ph-") and (self.headers.get("Origin") != PORNHUB or not self.headers.get("Referer", "").startswith(PORNHUB)):
                 self.log(status=412, reason="no Pornhub headers")
                 return self.reply(412)
@@ -324,16 +333,6 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length)
-        if self.path.split("?", 1)[0] == "/haven/wp-content/plugins/player-logic/api.php":
-            # multipart/form-data with action, a (the player page's en) and b (its iv)
-            fields = dict(re.findall(rb'name="?([^";\r\n]+)"?\r\n(?:[^\r\n]+\r\n)*\r\n(.*?)\r\n--', body, re.S))
-            en = fields.get(b"a", b"").decode()
-            if fields.get(b"action") != b"zarat_get_data_player_ajax" or en not in HAVEN_KEYS or fields.get(b"b", b"").decode() != "iv-" + en:
-                return self.deny("bad player keys")
-            media = HAVEN_KEYS[en]
-            self.log(status=200, kind="haven-api", media=media, cookie=self.headers.get("Cookie", ""))
-            sources = [{"src": f"{BASE}/hls/{media}/index.m3u8", "type": "application/x-mpegURL", "label": "720p"}]
-            return self.reply(200, json.dumps({"status": True, "data": {"sources": sources}}).encode())
         if self.path.split("?", 1)[0] != "/api/v11/handshake":
             self.log(status=404)
             return self.reply(404)

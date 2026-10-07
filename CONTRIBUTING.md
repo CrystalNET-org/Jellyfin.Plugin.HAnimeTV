@@ -86,18 +86,18 @@ reads it (`OppaiStream/`):
 
 ### Hentai Haven
 
-Hentai Haven runs WordPress with the Madara theme (series are "manga", episodes "chapters") and
-its `player-logic` plugin (`HentaiHaven/`):
+hentaihaven.co is a Next.js site whose videos are on a separate host, nhplayer (`HentaiHaven/`):
 
-- **Catalog:** the search for nothing, newest first (`/?s=&post_type=wp-manga&m_orderby=latest`,
-  then `/page/2/…` until a page is missing), lists every series with its latest episodes. Each
-  series' page has its metadata and episodes (`li.wp-manga-chapter`; if the theme loads them
-  later, `<series>/ajax/chapters/` or `admin-ajax.php?action=manga_get_chapters`). Series pages
-  are kept on disk (`<data>/adult-media/hentaihaven.json`) and read again when the list shows
-  new episodes, or after 30 days.
-- **Streams:** the episode page's player (`.player_logic_item iframe`) holds two keys (`en`,
-  `iv`); `POST /wp-content/plugins/player-logic/api.php` with `action=zarat_get_data_player_ajax`,
-  `a=<en>`, `b=<iv>` answers with the HLS sources.
+- **Catalog:** the home page lists every episode, newest first, 40 per page (`/?page=N`, the
+  last page from its pagination), as cards (`a.a_item`) linking to `/watch/<series>-episode-<n>/`.
+  Each episode's page is read once (again after 30 days) and kept on disk
+  (`<data>/adult-media/hentaihaven.json`): title (`h1.video_title`), the details
+  (`div.r_item`: series, brand, release and upload date), genres (`div.video_tags`),
+  description, cover, and its landscape image (in the list of the series' episodes).
+- **Streams:** the episode page's player (`div.player iframe`, `https://nhplayer.com/v/<id>/`)
+  lists its servers as `data-id="/player.php?vid=…"`, where `vid` is base64 of
+  "address|expiry|signature": the address is the MP4 file. A server whose player page names
+  stream addresses itself is preferred. The video host gets the player's page as Referer.
 
 If oppai.stream or Hentai Haven cannot be read and was never read before, the sync leaves it
 out rather than failing; once read, its last catalog is used instead.

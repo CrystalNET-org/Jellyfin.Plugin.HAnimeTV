@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.HAnimeTV.Configuration;
 using Jellyfin.Plugin.HAnimeTV.Hentai;
+using Jellyfin.Plugin.HAnimeTV.HentaiHaven;
 using Jellyfin.Plugin.HAnimeTV.OppaiStream;
 using Jellyfin.Plugin.HAnimeTV.Streaming;
 using MediaBrowser.Controller.Channels;
@@ -19,14 +20,16 @@ namespace Jellyfin.Plugin.HAnimeTV.Channels
 
         private readonly HentaiCatalog _catalog;
         private readonly OppaiStreamClient _oppaiStream;
+        private readonly HentaiHavenClient _hentaiHaven;
         private readonly StreamLinks _links;
         private readonly IMediaEncoder _mediaEncoder;
         private readonly ILogger<HentaiChannelSource> _logger;
 
-        public HentaiChannelSource(HentaiCatalog catalog, OppaiStreamClient oppaiStream, StreamLinks links, IMediaEncoder mediaEncoder, ILogger<HentaiChannelSource> logger)
+        public HentaiChannelSource(HentaiCatalog catalog, OppaiStreamClient oppaiStream, HentaiHavenClient hentaiHaven, StreamLinks links, IMediaEncoder mediaEncoder, ILogger<HentaiChannelSource> logger)
         {
             _catalog = catalog;
             _oppaiStream = oppaiStream;
+            _hentaiHaven = hentaiHaven;
             _links = links;
             _mediaEncoder = mediaEncoder;
             _logger = logger;
@@ -69,8 +72,14 @@ namespace Jellyfin.Plugin.HAnimeTV.Channels
                 return [await OppaiStreamSourceAsync(video.Id, cancellationToken).ConfigureAwait(false)];
             }
 
-            var link = video.Source == HentaiSource.Hanime ? _links.Hanime(video.Id) : _links.HentaiHaven(video.Id);
-            var source = await StreamSource.CreateAsync(HentaiVideo.KeyOf(video.Source, video.Id), link, null, _mediaEncoder, _logger, cancellationToken).ConfigureAwait(false);
+            if (video.Source == HentaiSource.HentaiHaven)
+            {
+                // Usually MP4 files at the video host: served as files, with ranges for seeking
+                var hls = (await _hentaiHaven.GetStreamsAsync(video.Id, cancellationToken).ConfigureAwait(false))[0].IsHls;
+                return [await StreamSource.CreateAsync(HentaiVideo.KeyOf(video.Source, video.Id), _links.HentaiHaven(video.Id, hls), null, _mediaEncoder, _logger, cancellationToken, hls ? "hls" : "mp4").ConfigureAwait(false)];
+            }
+
+            var source = await StreamSource.CreateAsync(HentaiVideo.KeyOf(video.Source, video.Id), _links.Hanime(video.Id), null, _mediaEncoder, _logger, cancellationToken).ConfigureAwait(false);
             return [source];
         }
 

@@ -265,7 +265,9 @@ def main():
           f"the merged catalog makes 4 series with 7 episodes ({state['LastReport']})")
     check(any(e.get("kind") == "catalog" for e in fake_log()) and not any(e.get("reason") == "bad app2 signature" for e in fake_log()),
           "hanime.tv's catalog was requested with a valid signature")
-    check({e.get("slug") for e in fake_log("haven-series")} == {"test-show", "haven-only"}, "Hentai Haven's list and series pages were read")
+    check({e.get("page") for e in fake_log("haven-list")} == {1, 2}
+          and {e.get("slug") for e in fake_log("haven-episode")} == {"test-show-episode-3", "haven-only-episode-1", "test-show-episode-2"},
+          "Hentai Haven's list pages and episode pages were read")
     show_dir = os.path.join(LIBRARY_DIR, "Test Show", "Season 01")
     strm = os.path.join(show_dir, "Test Show S01E01.strm")
     check(os.path.isfile(strm) and os.path.isfile(strm[:-5] + ".nfo") and os.path.isfile(os.path.join(LIBRARY_DIR, "Test Show", "tvshow.nfo")),
@@ -283,7 +285,8 @@ def main():
     check(os.path.isfile(os.path.join(show_dir, "Test Show S01E04.strm")), "the episode only oppai.stream has joins the series")
     haven_strm = os.path.join(LIBRARY_DIR, "Haven Only", "Season 01", "Haven Only S01E01.strm")
     haven_link = open(haven_strm).read().strip() if os.path.isfile(haven_strm) else ""
-    check(haven_link.startswith("http://jellyfin:8096/HanimeTV/HentaiHaven/"), f"as do Hentai Haven's own series ({haven_link[:70]}…)")
+    check(haven_link.startswith("http://jellyfin:8096/HanimeTV/HentaiHaven/") and "/video.mp4?token=" in haven_link,
+          f"as do Hentai Haven's own series, as files ({haven_link[:70]}…)")
     check(os.path.isfile(os.path.join(LIBRARY_DIR, "Oppai Only", "Season 01", "Oppai Only S01E01.strm")), "and oppai.stream's")
     status, folders = admin.call("GET", "/Library/VirtualFolders")
     library = next((f for f in folders or [] if norm(f.get("ItemId", "")) == library_id), {})
@@ -385,16 +388,18 @@ def main():
     print("Hentai Haven", flush=True)
     if haven_episode:
         status, source, info = playback_info(alice, haven_episode["Id"])
-        check(status == 200 and source.get("Path", "").startswith("http://jellyfin:8096/HanimeTV/HentaiHaven/"),
-              f"the Hentai Haven episode plays from its stream link ({status}, {source.get('Path', '')[:60]})")
+        path = source.get("Path", "")
+        check(status == 200 and path.startswith("http://jellyfin:8096/HanimeTV/HentaiHaven/") and "/video.mp4?" in path,
+              f"the Hentai Haven episode plays from its stream link ({status}, {path[:60]})")
         runtime = (source.get("RunTimeTicks") or 0) / 10_000_000
-        check(25 <= runtime <= 35, f"Jellyfin probed its stream: {runtime:.1f}s")
-        play_hls(alice, source.get("Path") or haven_link, "its stream link, without a login", anonymous=True)
-        api = [e for e in fake_log("haven-api") if e.get("media") == "haven-only-1"]
-        check(api and all("haven_session=1" in e.get("cookie", "") for e in api), "the player's API gave the stream for the player page's keys, with the site's cookies")
-        hls = [e for e in fake_log("hls") if "haven-only-1" in e["path"]]
-        check(hls and all(e["referer"].startswith("http://fake-hanime:8080/haven") for e in hls), "every request reached Hentai Haven with its Referer")
-        check(not any(e.get("reason") in ("no Hentai Haven Referer", "bad player keys") for e in fake_log()), "and none was refused")
+        check(25 <= runtime <= 35, f"Jellyfin probed its file: {runtime:.1f}s")
+        check(any(e.get("slug") == "haven-only-episode-1" for e in fake_log("nhplayer-page")), "through the episode's player at the video host")
+        status, body = get(alice, path, headers={"Range": "bytes=0-99"}) if path else (0, b"")
+        check(status == 206 and len(body) == 100 and body[4:8] == b"ftyp", f"its stream link serves ranges, without a login ({status}, {len(body)} bytes)")
+        mp4 = fake_log("haven-mp4")
+        check(mp4 and any(e.get("range") == "bytes=0-99" for e in mp4) and all(e["referer"].startswith("http://fake-hanime:8080/nhplayer/v/") for e in mp4),
+              "every request reached the video host with its player as Referer, and the ranges")
+        check(not any(e.get("reason") in ("no Hentai Haven Referer", "no nhplayer Referer") for e in fake_log()), "and none was refused")
 
     print("Stream links", flush=True)
     base_link = stream_link.split("?")[0]

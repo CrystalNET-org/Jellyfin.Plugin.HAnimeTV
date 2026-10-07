@@ -248,21 +248,21 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
         {
             const string Name = "Hentai Haven";
             var client = new HentaiHavenClient(_httpClientFactory, () => settings, null, _loggerFactory.CreateLogger<HentaiHavenClient>());
-            IReadOnlyList<HentaiVideo> sample;
+            HentaiVideo? newest;
+            int listed;
             try
             {
-                // The first page of the list and the newest series: the whole list takes minutes
-                sample = await client.SampleAsync(cancellationToken).ConfigureAwait(false);
+                // The first page of the list and the newest episode: the whole list takes minutes
+                (listed, newest) = await client.SampleAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (HentaiHavenException ex)
             {
                 return new { Name, Ok = false, CatalogError = ex.Message };
             }
 
-            var newest = sample.OrderByDescending(v => v.EpisodeNumber ?? 0).FirstOrDefault();
             if (newest is null)
             {
-                return new { Name, Ok = false, VideoCount = 0, CatalogError = "The newest series has no episodes" };
+                return new { Name, Ok = false, VideoCount = 0, CatalogError = "The list shows no episodes" };
             }
 
             try
@@ -272,15 +272,14 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
                 {
                     Name,
                     Ok = true,
-                    TestedSeries = newest.SeriesName,
-                    VideoCount = sample.Count,
+                    VideoCount = listed,
                     TestedVideo = newest.Name,
-                    Streams = streams.Select(s => string.IsNullOrEmpty(s.Label) ? (s.IsHls ? "HLS" : "MP4") : s.Label),
+                    Streams = streams.Select(s => (s.IsHls ? "HLS " : "MP4 ") + new Uri(s.Url).Host),
                 };
             }
             catch (HentaiHavenException ex)
             {
-                return new { Name, Ok = false, TestedSeries = newest.SeriesName, VideoCount = sample.Count, TestedVideo = newest.Name, StreamError = ex.Message };
+                return new { Name, Ok = false, VideoCount = listed, TestedVideo = newest.Name, StreamError = ex.Message };
             }
         }
 

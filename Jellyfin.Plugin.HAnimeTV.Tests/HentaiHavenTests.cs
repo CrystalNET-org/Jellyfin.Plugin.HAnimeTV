@@ -12,67 +12,41 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
     public class HentaiHavenTests : IDisposable
     {
         private const string Site = "https://haven.test/";
+        private const string Player = "https://player.test/";
 
         private static readonly DateTimeOffset Now = new(2026, 10, 7, 12, 0, 0, TimeSpan.Zero);
 
         private readonly HentaiSettings _config = new() { HentaiHavenUrl = "https://haven.test" };
         private readonly List<HttpRequestMessage> _requests = new();
-        private readonly Dictionary<string, string> _bodies = new();
         private readonly string _cacheFile = Path.Combine(Path.GetTempPath(), "hh-test-" + Guid.NewGuid().ToString("N") + ".json");
         private Func<HttpRequestMessage, HttpResponseMessage?> _override = _ => null;
 
         public void Dispose() => File.Delete(_cacheFile);
 
-        // Madara's search results, as Hentai Haven lists its series
-        internal static string Listing(params (string Slug, string Title, int[] Episodes)[] series) =>
-            "<html><body><div class=\"c-tabs-item\">"
-            + string.Concat(series.Select(s =>
-                $"""
-                <div class="row c-tabs-item__content">
-                  <div class="col-4"><div class="tab-thumb c-image-hover"><a href="{Site}watch/{s.Slug}/" title="{s.Title}"><img data-src="{Site}covers/{s.Slug}.jpg" src="data:image/gif;base64,AA"></a></div></div>
-                  <div class="col-8"><div class="tab-summary">
-                    <div class="post-title"><h3 class="h4"><a href="{Site}watch/{s.Slug}/">{s.Title}</a></h3></div>
-                    <div class="post-content"><div class="post-content_item mg_genres"><div class="summary-heading"><h5>Genres</h5></div><div class="summary-content"><a href="{Site}genre/x/">X</a></div></div></div>
-                  </div>
-                  <div class="tab-meta"><div class="meta-item latest-chap"><span class="font-meta chapter">{string.Concat(s.Episodes.Select(e => $"<a href=\"{Site}watch/{s.Slug}/episode-{e}/\">Episode {e}</a>"))}</span></div></div></div>
-                </div>
-                """))
-            + "</div></body></html>";
+        // The home page's list, newest first, as the site renders it
+        internal static string Home(int lastPage, params (string Slug, string Title, int Episode)[] episodes) =>
+            "<html><head><title>Hentai Haven | Hentai Series &amp; Episodes</title></head><body><div class=\"sub_overview\">"
+            + string.Concat(episodes.Select(e =>
+                $"""<a class="a_item" href="/watch/{e.Slug}-episode-{e.Episode}/"><div class="v_item"><div class="video_cover"><img alt="{e.Title} Episode {e.Episode}" loading="lazy" width="268" height="394" decoding="async" data-nimg="1" class="lazy" style="color:transparent" src="/uploads/img_{e.Slug}-{e.Episode}.jpg"/><div class="card_badges"><span class="card_badge">EP {e.Episode}</span><span class="card_badge card_badge_new">New</span></div><button type="button" class="card_save" aria-pressed="false"><i class="fa fa-bookmark" aria-hidden="true"></i></button></div><div class="video_title">{e.Title} Episode {e.Episode}</div></div></a>"""))
+            + "</div><ul class=\"pagination\"><li class=\"page-item disabled\"><a class=\"page-link\" href=\"#\" tabindex=\"-1\">Previous</a></li><li class=\"page-item active\"><a class=\"page-link\" href=\"/\">1</a></li>"
+            + string.Concat(Enumerable.Range(2, Math.Max(0, lastPage - 1)).Select(p => $"<li class=\"page-item\"><a class=\"page-link\" href=\"/?page={p}\">{p}</a></li>"))
+            + "</ul></body></html>";
 
-        internal static string SeriesPage(string slug, string title, params int[] episodes) =>
+        internal static string EpisodePage(string slug, string series, int episode, string player) =>
             $"""
-            <html><head>
-              <meta property="og:title" content="{title} - Hentai Haven">
-              <meta property="og:image" content="{Site}og/{slug}.jpg">
-            </head><body class="postid-42">
-            <div class="post-title"><h1><span class="manga-title-badges hot">HOT</span> {title} </h1></div>
-            <div class="summary_image"><a href="{Site}watch/{slug}/"><img class="img-responsive" data-src="{Site}covers/{slug}-poster.jpg" src="data:image/gif;base64,AA" alt="{title}"></a></div>
-            <div class="post-content">
-              <div class="post-content_item"><div class="summary-heading"><h5>Release</h5></div><div class="summary-content">2021</div></div>
-              <div class="post-content_item"><div class="summary-heading"><h5>Studio</h5></div><div class="summary-content"><div class="author-content"><a href="{Site}studio/pink/" rel="tag">Pink Pineapple</a></div></div></div>
-              <div class="post-content_item"><div class="summary-heading"><h5>Genre(s)</h5></div><div class="summary-content"><div class="genres-content"><a href="{Site}genre/a/">Big Boobs</a>, <a href="{Site}genre/b/">Vanilla</a></div></div></div>
-            </div>
-            <div class="description-summary"><div class="summary__content show-more"><p>Synopsis: First &amp; foremost.</p><p>Second paragraph.</p></div></div>
-            <div class="page-content-listing single-page"><div class="listing-chapters_wrap"><ul class="main version-chap">
-            {string.Concat(episodes.Reverse().Select(e => $"""
-              <li class="wp-manga-chapter has-thumb"><a href="{Site}watch/{slug}/episode-{e}/"><img data-src="{Site}thumbs/{slug}-{e}.jpg"> Episode {e} </a><span class="chapter-release-date"><i>April {e}, 2021</i></span></li>
-            """))}
-            </ul></div></div>
+            <html><head><meta property="og:image" content="{Site}uploads/posters/{slug}-episode-{episode}-feature.jpg"/></head><body>
+            <div class="video"><div class="left"><div class="watch-ad-top mobile"><div style="display:inline-block;max-width:100%"><iframe style="background-color: white;" width="300" height="250" scrolling="no" frameborder="0" name="spot_id_10001807" src="//ads.test/get/10001807?ata=x"></iframe></div></div>
+            <div class="player"><iframe allowfullscreen="" scrolling="no" loading="lazy" style="width:100%;height:100%" src="{player}"></iframe></div>
+            <div class="info_top"><h1 class="video_title">{series} Episode {episode}</h1><div class="video_views">31,784<!-- --> views</div><div class="buttons"><input type="hidden" id="video_id" value="259"/><div class="button_item like tt" data-vote=""><span class="tt_text">Like</span><i class="fa fa-heart"></i><span class="ln">30</span></div><div class="button_item dislike tt" data-vote=""><span class="tt_text">Dislike</span><i class="fa fa-heart-broken"></i><span class="dn">2</span></div></div></div>
+            <div class="info_bottom"><div class="cover"><img alt="{series} Episode {episode} cover" loading="lazy" width="150" height="200" decoding="async" data-nimg="1" class="lazy" style="color:transparent" src="/uploads/posters/{slug}-episode-{episode}-feature.jpg"/></div><div class="r_info_b"><div class="flex_wrap"><div class="r_item half"><span>Brand</span><span class="sub_r"><a href="/brand/magin-label/" rel="nofollow">Magin Label</a></span></div><div class="r_item half"><span>Episodes</span><span class="sub_r">47</span></div><div class="r_item half"><span>Views</span><span class="sub_r">31,784</span></div><div class="r_item half"><span>Series</span><span class="sub_r"><a href="/series/{slug}/">{series}</a></span></div><div class="r_item half"><span>Release Date</span><span class="sub_r">2011-12-22</span></div><div class="r_item half"><span>Upload Date</span><span class="sub_r">2014-07-23</span></div></div></div><div class="clear"></div></div>
+            <div class="video_tags"><a href="/genre/bdsm/" rel="nofollow">BDSM</a><a href="/genre/censored/" rel="nofollow">censored</a><a href="/tag/hentai/" rel="nofollow">hentai</a><span class="more-tags">... and <!-- -->2<!-- --> more</span><div class="video_description"><p>First paragraph &amp; more.</p><p>Second paragraph.</p></div></div>
+            </div><div class="right"><div class="mfs_item"><div class="now_playing">Now Playing</div><div class="poster"><a href="/watch/{slug}-episode-{episode}/" rel="nofollow"><img alt="{series} Episode {episode}" loading="lazy" width="120" height="80" class="lazy" src="/uploads/thumbs/{slug}-episode-{episode}-backdrop.jpg"/></a></div></div></div></div>
             </body></html>
             """;
 
-        internal static string EpisodePage(string slug, int episode) =>
-            $"""<html><body><div class="player_logic_item"><iframe src="{Site}wp-content/plugins/player-logic/player.php?data={slug}-{episode}" allowfullscreen></iframe></div></body></html>""";
-
-        internal const string PlayerPage = """
-            <html><body><script type="text/javascript">
-            var en = 'ENCRYPTED+/=';
-            var iv = 'IV==';
-            </script></body></html>
-            """;
-
-        internal static string ApiAnswer(string slug, int episode) =>
-            $$$"""{"status":true,"data":{"sources":[{"src":"https://cdn.test/{{{slug}}}/{{{episode}}}/480/index.m3u8","type":"application/x-mpegURL","label":"480p"},{"src":"https://cdn.test/{{{slug}}}/{{{episode}}}/1080/index.m3u8","type":"application/x-mpegURL","label":"1080p"}]}}""";
+        // nhplayer's page: a server per video, its address in base64 "address|expiry|signature"
+        internal static string PlayerPage(string video) =>
+            $"""<html><body><div class="frame"><header class="header"><div class="servers"><ul><li data-id="/player.php?vid={Convert.ToBase64String(Encoding.UTF8.GetBytes(video + "|1791477583|cb4b317cdc15fee3"))}&i=aW1n&type=">Main Player</li></ul></div></header><iframe src="" allowFullScreen="true"></iframe></div></body></html>""";
 
         private HentaiHavenClient Create(string? cacheFile = null)
         {
@@ -92,106 +66,97 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             var url = request.RequestUri!.AbsoluteUri;
             string? body = url switch
             {
-                Site + "?s=&post_type=wp-manga&m_orderby=latest" => Listing(("first-show", "First Show", [2, 1]), ("second-show", "Second Show", [1])),
-                Site + "watch/first-show/" => SeriesPage("first-show", "First Show", 1, 2),
-                Site + "watch/second-show/" => SeriesPage("second-show", "Second Show", 1),
-                Site + "watch/first-show/episode-2/" => EpisodePage("first-show", 2),
-                Site + "wp-content/plugins/player-logic/player.php?data=first-show-2" => PlayerPage,
-                Site + "wp-content/plugins/player-logic/api.php" => ApiAnswer("first-show", 2),
+                Site => Home(2, ("ane-no-show", "Ane no Show", 2), ("other-show", "Other Show", 1)),
+                Site + "?page=2" => Home(2, ("ane-no-show", "Ane no Show", 1)),
+                Site + "watch/ane-no-show-episode-2/" => EpisodePage("ane-no-show", "Ane no Show", 2, Player + "v/abc/"),
+                Site + "watch/ane-no-show-episode-1/" => EpisodePage("ane-no-show", "Ane no Show", 1, Player + "v/def/"),
+                Site + "watch/other-show-episode-1/" => EpisodePage("other-show", "Other Show", 1, Player + "v/ghi/"),
+                Player + "v/abc/" => PlayerPage("https://cdn.test/ane-no-show-2.mp4"),
+                _ when url.StartsWith(Player + "player.php", StringComparison.Ordinal) => "<html><body><div id=\"player\"></div></body></html>",
                 _ => null,
             };
             return body is null
                 ? new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent("<html>Not found</html>") }
-                : new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/html") };
+                : Ok(body);
         }
 
+        private static HttpResponseMessage Ok(string body) => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/html") };
+
         [Fact]
-        public void Listing_ReadsTheSeriesAndTheirListedEpisodes()
+        public void Listing_ReadsTheCardsAndPages()
         {
-            var listing = HentaiHavenPage.Listing(Listing(("a", "A &amp; B", [3, 2]), ("b", "Other", [1])), new Uri(Site));
+            var html = Home(85, ("pure-x-holic", "Pure x Holic: Junketsu Otome &amp; Konin!?", 2), ("other", "Other", 1));
+
+            var listing = HentaiHavenPage.Listing(html, new Uri(Site));
 
             Assert.Equal(2, listing.Count);
-            Assert.Equal(Site + "watch/a/", listing[0].Url);
-            Assert.Equal("A & B", listing[0].Title);
-            Assert.Equal(new[] { Site + "watch/a/episode-3/", Site + "watch/a/episode-2/" }, listing[0].EpisodeUrls);
-            Assert.Equal(new[] { Site + "watch/b/episode-1/" }, listing[1].EpisodeUrls);
+            Assert.Equal(new HentaiHavenListing(Site + "watch/pure-x-holic-episode-2/", "Pure x Holic: Junketsu Otome & Konin!? Episode 2", Site + "uploads/img_pure-x-holic-2.jpg", 2), listing[0]);
+            Assert.Equal(85, HentaiHavenPage.LastPage(html));
+            Assert.Equal(1, HentaiHavenPage.LastPage("<html></html>"));
         }
 
         [Fact]
-        public void Series_ReadsTheMetadataAndTheEpisodesOldestFirst()
+        public void Episode_ReadsTheDetailsAndThePlayer()
         {
-            var series = HentaiHavenPage.Series(SeriesPage("show", "The Show", 1, 2, 3), new Uri(Site + "watch/show/"), Now);
+            var page = HentaiHavenPage.Episode(EpisodePage("euphoria", "Euphoria", 1, "https://nhplayer.com/v/3V4k3I8gxvHUJjA/"), new Uri(Site + "watch/euphoria-episode-1/"));
 
-            Assert.Equal("The Show", series.Title);
-            Assert.Equal("First & foremost.\n\nSecond paragraph.", series.Description);
-            Assert.Equal(Site + "covers/show-poster.jpg", series.PosterUrl);
-            Assert.Equal(new[] { "Big Boobs", "Vanilla" }, series.Genres);
-            Assert.Equal("Pink Pineapple", series.Studio);
-            Assert.Equal(2021, series.Year);
-            Assert.Equal(new[] { 1, 2, 3 }, series.Episodes.Select(e => e.Number));
-            Assert.Equal(Site + "watch/show/episode-1/", series.Episodes[0].Url);
-            Assert.Equal(new DateTime(2021, 4, 2, 0, 0, 0, DateTimeKind.Utc), series.Episodes[1].ReleasedAt);
-            Assert.Equal(Site + "thumbs/show-3.jpg", series.Episodes[2].ThumbnailUrl);
+            Assert.Equal("Euphoria Episode 1", page.Title);
+            Assert.Equal("Euphoria", page.SeriesName);
+            Assert.Equal("Magin Label", page.Studio);
+            Assert.Equal("First paragraph & more.\n\nSecond paragraph.", page.Description);
+            Assert.Equal(new[] { "BDSM", "censored" }, page.Genres);
+            Assert.Equal(Site + "uploads/posters/euphoria-episode-1-feature.jpg", page.PosterUrl);
+            Assert.Equal(Site + "uploads/thumbs/euphoria-episode-1-backdrop.jpg", page.ThumbnailUrl);
+            Assert.Equal(new DateTime(2011, 12, 22, 0, 0, 0, DateTimeKind.Utc), page.ReleasedAt);
+            Assert.Equal(new DateTime(2014, 7, 23, 0, 0, 0, DateTimeKind.Utc), page.UploadedAt);
+            Assert.Equal((31784L, 30L, 2L), (page.Views, page.Likes, page.Dislikes));
+            // Not the ad's frame before it
+            Assert.Equal("https://nhplayer.com/v/3V4k3I8gxvHUJjA/", page.Player?.AbsoluteUri);
         }
 
         [Fact]
-        public void Series_FallsBackToTheMetaTags()
+        public void PlayerServers_DecodeTheVideosAddress()
         {
-            const string Html = """
-                <html><head><meta property="og:title" content="Bare Show &#8211; Hentai Haven"><meta property="og:image" content="https://haven.test/og.jpg">
-                <meta name="description" content="About it."></head><body>
-                <a href="https://haven.test/watch/bare/episode-2/">Ep 2</a><a href="https://haven.test/watch/bare/episode-1/">Ep 1</a>
-                <a href="https://haven.test/watch/bare/#comments">Comments</a></body></html>
-                """;
+            var servers = HentaiHavenPage.PlayerServers(PlayerPage("https://r2.1hanime.com/euphoria-1.mp4"), new Uri("https://nhplayer.com/v/3V4k3I8gxvHUJjA/"));
 
-            var series = HentaiHavenPage.Series(Html, new Uri(Site + "watch/bare/"), Now);
-
-            Assert.Equal("Bare Show", series.Title);
-            Assert.Equal("About it.", series.Description);
-            Assert.Equal("https://haven.test/og.jpg", series.PosterUrl);
-            Assert.Equal(new[] { 1, 2 }, series.Episodes.Select(e => e.Number));
+            var (player, video) = Assert.Single(servers);
+            Assert.StartsWith("https://nhplayer.com/player.php?vid=", player.AbsoluteUri, StringComparison.Ordinal);
+            Assert.Equal("https://r2.1hanime.com/euphoria-1.mp4", video);
         }
 
-        [Fact]
-        public void Player_KeysAndSourcesAreRead()
-        {
-            var frame = HentaiHavenPage.PlayerFrame(EpisodePage("a", 1), new Uri(Site + "watch/a/episode-1/"));
-            var sources = HentaiHavenPage.ApiSources(ApiAnswer("a", 1), new Uri(Site));
-
-            Assert.Equal(Site + "wp-content/plugins/player-logic/player.php?data=a-1", frame?.AbsoluteUri);
-            Assert.Equal(("ENCRYPTED+/=", "IV=="), HentaiHavenPage.PlayerKeys(PlayerPage));
-            Assert.Equal(new[] { "1080p", "480p" }, sources.Select(s => s.Label));
-            Assert.True(sources[0].IsHls);
-            Assert.Empty(HentaiHavenPage.ApiSources("""{"status":false,"data":"error"}""", new Uri(Site)));
-            Assert.Empty(HentaiHavenPage.ApiSources("<html>", new Uri(Site)));
-        }
+        [Theory]
+        [InlineData("aHR0cHM6Ly9yMi4xaGFuaW1lLmNvbS9ldXBob3JpYS0xLm1wNHwxNzkxNDc3NTgzfGNiNGIzMTdjZGMxNWZlZTM=", "https://r2.1hanime.com/euphoria-1.mp4")]
+        [InlineData("aHR0cHM6Ly9yMi4xaGFuaW1lLmNvbS9ldXBob3JpYS0xLm1wNHwxNzkxNDc3NTgzfGNiNGIzMTdjZGMxNWZlZTM", "https://r2.1hanime.com/euphoria-1.mp4")]
+        [InlineData("bm90IGEgdXJs", null)]
+        [InlineData("%%%", null)]
+        [InlineData(null, null)]
+        public void DecodeVid_ReadsTheAddress(string? vid, string? expected) => Assert.Equal(expected, HentaiHavenPage.DecodeVid(vid));
 
         [Fact]
         public void DirectStreams_FindsAddressesInScripts()
         {
             const string Html = """<script>player.setup({file:"https:\/\/cdn.test\/v\/720p.mp4"}); var hls = 'https://cdn.test/v/master.m3u8?t=1';</script>""";
 
-            var streams = HentaiHavenPage.DirectStreams(Html, new Uri(Site));
+            var streams = HentaiHavenPage.DirectStreams(Html, new Uri(Player));
 
             Assert.Equal(new[] { "https://cdn.test/v/master.m3u8?t=1", "https://cdn.test/v/720p.mp4" }, streams.Select(s => s.Url));
+            Assert.All(streams, s => Assert.Equal(Player, s.Referer));
         }
 
         [Theory]
-        [InlineData("April 3, 2021", "2021-04-03T00:00:00")]
-        [InlineData("2021-04-03", "2021-04-03T00:00:00")]
-        [InlineData("3 days ago", "2026-10-04T12:00:00")]
-        [InlineData("1 hour ago", "2026-10-07T11:00:00")]
-        public void ParseDate_ReadsDatesAndAges(string text, string expected) =>
-            Assert.Equal(DateTime.Parse(expected, System.Globalization.CultureInfo.InvariantCulture), HentaiHavenPage.ParseDate(text, Now));
+        [InlineData("Euphoria Episode 1", "Euphoria", 1)]
+        [InlineData("Pure x Holic: The Animation Episode 12", "Pure x Holic: The Animation", 12)]
+        [InlineData("2x1 Ep 3", "2x1", 3)]
+        [InlineData("Aki Sora Ova", "Aki Sora Ova", null)]
+        public void SeriesAndNumber_SplitTheTitle(string title, string series, int? number) =>
+            Assert.Equal((series, number), HentaiHavenPage.SeriesAndNumber(title));
 
-        [Theory]
-        [InlineData("Episode 3", "https://x/watch/a/episode-3/", 3)]
-        [InlineData("Ep. 12", "https://x/watch/a/12/", 12)]
-        [InlineData("OVA", "https://x/watch/a/episode-4/", 4)]
-        [InlineData("Part 2", "https://x/watch/a/part/", 2)]
-        [InlineData("Special", "https://x/watch/a/special/", null)]
-        public void EpisodeNumber_ComesFromTheNameOrAddress(string text, string url, int? expected) =>
-            Assert.Equal(expected, HentaiHavenPage.EpisodeNumber(text, url));
+        [Fact]
+        public void NumberInUrl_ReadsTheSlug()
+        {
+            Assert.Equal(4, HentaiHavenPage.NumberInUrl(Site + "watch/euphoria-episode-4/"));
+            Assert.Null(HentaiHavenPage.NumberInUrl(Site + "watch/aki-sora-ova/"));
+        }
 
         [Fact]
         public void Describe_TellsWhatThePageIs()
@@ -208,43 +173,52 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         public void IsChallenge_RecognizesCloudflare()
         {
             Assert.True(HentaiHavenPage.IsChallenge("<html><head><title>Just a moment...</title>"));
-            Assert.False(HentaiHavenPage.IsChallenge(SeriesPage("a", "A", 1)));
+            Assert.False(HentaiHavenPage.IsChallenge(Home(1)));
         }
 
         [Fact]
-        public async Task GetCatalog_ReadsTheListAndEverySeries()
+        public async Task GetCatalog_ReadsEveryPageAndEpisode()
         {
             var catalog = await Create().GetCatalogAsync(CancellationToken.None);
 
-            Assert.Equal(new[] { "First Show 1", "First Show 2", "Second Show 1" }, catalog.Select(v => v.Name));
-            var first = catalog[0];
-            Assert.Equal(HentaiSource.HentaiHaven, first.Source);
-            Assert.Equal("watch/first-show/episode-1/", first.Id);
-            Assert.Equal(("First Show", 1), first.SeriesInfo());
-            Assert.Equal("Pink Pineapple", first.Brand);
-            Assert.Equal(Site + "covers/first-show-poster.jpg", first.PosterUrl);
-            Assert.Equal(Site + "thumbs/first-show-1.jpg", first.ThumbnailUrl);
-            Assert.Equal(Site + "watch/first-show/episode-1/", first.PageUrl);
-            // Page 2 answered 404: the end of the list
-            Assert.Contains(_requests, r => r.RequestUri!.AbsoluteUri == Site + "page/2/?s=&post_type=wp-manga&m_orderby=latest");
+            Assert.Equal(new[] { "Ane no Show 2", "Other Show 1", "Ane no Show 1" }, catalog.Select(v => v.Name));
+            var newest = catalog[0];
+            Assert.Equal(HentaiSource.HentaiHaven, newest.Source);
+            Assert.Equal("watch/ane-no-show-episode-2/", newest.Id);
+            Assert.Equal(("Ane no Show", 2), newest.SeriesInfo());
+            Assert.Equal("Magin Label", newest.Brand);
+            Assert.Equal(Site + "uploads/posters/ane-no-show-episode-2-feature.jpg", newest.PosterUrl);
+            Assert.Equal(Site + "uploads/thumbs/ane-no-show-episode-2-backdrop.jpg", newest.ThumbnailUrl);
+            Assert.Equal(new DateTime(2014, 7, 23, 0, 0, 0, DateTimeKind.Utc), newest.CreatedAt);
+            Assert.True(newest.IsCensored);
+            Assert.True(newest.StreamIsFile);
+            Assert.Equal(30, newest.Likes);
         }
 
         [Fact]
-        public async Task GetCatalog_ReadsOnlyChangedSeriesAgain()
+        public async Task GetCatalog_ReadsOnlyNewEpisodesAgain()
         {
             _config.CatalogCacheHours = 1;
             await Create(_cacheFile).GetCatalogAsync(CancellationToken.None);
             _requests.Clear();
+            _override = r => r.RequestUri!.AbsoluteUri == Site
+                ? Ok(Home(2, ("ane-no-show", "Ane no Show", 3), ("ane-no-show", "Ane no Show", 2), ("other-show", "Other Show", 1)))
+                : r.RequestUri.AbsoluteUri == Site + "watch/ane-no-show-episode-3/" ? Ok(EpisodePage("ane-no-show", "Ane no Show", 3, Player + "v/jkl/")) : null;
 
-            // A new client: the series come from the file
-            _override = r => r.RequestUri!.AbsoluteUri == Site + "?s=&post_type=wp-manga&m_orderby=latest"
-                ? Ok(Listing(("first-show", "First Show", [3, 2]), ("second-show", "Second Show", [1])))
-                : r.RequestUri.AbsoluteUri == Site + "watch/first-show/" ? Ok(SeriesPage("first-show", "First Show", 1, 2, 3)) : null;
             var catalog = await Create(_cacheFile).GetCatalogAsync(CancellationToken.None);
 
             Assert.Equal(4, catalog.Count);
-            Assert.Contains(_requests, r => r.RequestUri!.AbsolutePath == "/watch/first-show/");
-            Assert.DoesNotContain(_requests, r => r.RequestUri!.AbsolutePath == "/watch/second-show/");
+            Assert.Equal(new[] { "/", "/", "/watch/ane-no-show-episode-3/" }, _requests.Select(r => r.RequestUri!.AbsolutePath).Order(StringComparer.Ordinal));
+        }
+
+        [Fact]
+        public async Task GetCatalog_KeepsGoingWhenAnEpisodePageFails()
+        {
+            _override = r => r.RequestUri!.AbsolutePath == "/watch/other-show-episode-1/" ? new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("oops") } : null;
+
+            var catalog = await Create().GetCatalogAsync(CancellationToken.None);
+
+            Assert.Equal(new[] { "Ane no Show 2", "Ane no Show 1" }, catalog.Select(v => v.Name));
         }
 
         [Fact]
@@ -261,6 +235,17 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         }
 
         [Fact]
+        public async Task GetCatalog_DescribesAnotherSite()
+        {
+            _override = _ => Ok("<html><head><title>Something Else</title></head><body><a href=\"/foo/bar\">x</a></body></html>");
+
+            var error = await Assert.ThrowsAsync<HentaiHavenException>(() => Create().GetCatalogAsync(CancellationToken.None));
+
+            Assert.Contains("Found no episodes", error.Message);
+            Assert.Contains("titled \"Something Else\"", error.Message);
+        }
+
+        [Fact]
         public async Task GetCatalog_ReportsBotChecks()
         {
             _override = _ => new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("<title>Just a moment...</title><script src=\"/cdn-cgi/challenge-platform/x\"></script>") };
@@ -271,31 +256,40 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         }
 
         [Fact]
-        public async Task GetStreams_AsksThePlayersApi()
+        public async Task GetStreams_FollowsThePlayerToTheVideo()
         {
-            var streams = await Create().GetStreamsAsync("watch/first-show/episode-2/", CancellationToken.None);
+            var streams = await Create().GetStreamsAsync("watch/ane-no-show-episode-2/", CancellationToken.None);
 
-            Assert.Equal("https://cdn.test/first-show/2/1080/index.m3u8", streams[0].Url);
-            var api = Assert.Single(_requests, r => r.Method == HttpMethod.Post);
-            Assert.Equal(Site + "wp-content/plugins/player-logic/api.php", api.RequestUri!.AbsoluteUri);
-            var form = _bodies[api.RequestUri.AbsoluteUri];
-            Assert.Contains("zarat_get_data_player_ajax", form);
-            Assert.Contains("ENCRYPTED+/=", form);
-            Assert.Contains("IV==", form);
-            Assert.Equal(Site + "wp-content/plugins/player-logic/player.php?data=first-show-2", api.Headers.Referrer?.AbsoluteUri);
+            var stream = Assert.Single(streams);
+            Assert.Equal("https://cdn.test/ane-no-show-2.mp4", stream.Url);
+            Assert.False(stream.IsHls);
+            // The player is asked for with the episode's page as Referer, its server with the player's
+            var player = Assert.Single(_requests, r => r.RequestUri!.AbsoluteUri == Player + "v/abc/");
+            Assert.Equal(Site + "watch/ane-no-show-episode-2/", player.Headers.Referrer?.AbsoluteUri);
+            var server = Assert.Single(_requests, r => r.RequestUri!.AbsolutePath == "/player.php");
+            Assert.Equal(Player + "v/abc/", server.Headers.Referrer?.AbsoluteUri);
         }
 
-        [Theory]
-        [InlineData("https://haven.test/", "https://haven.test/watch/a/episode-1/", "watch/a/episode-1/")]
-        [InlineData("https://haven.test/sub/", "https://haven.test/sub/watch/a/episode-1/", "watch/a/episode-1/")]
-        [InlineData("https://haven.test/sub/", "https://www.haven.test/watch/a/?p=1", "/watch/a/?p=1")]
-        [InlineData("https://haven.test/", "https://cdn.test/watch/a/", "https://cdn.test/watch/a/")]
-        public void RelativePath_ResolvesBackToTheEpisode(string site, string episode, string expected)
+        [Fact]
+        public async Task GetStreams_PrefersWhatThePlayersServerNames()
         {
-            var path = HentaiHavenClient.RelativePath(new Uri(site), episode);
+            _override = r => r.RequestUri!.AbsolutePath == "/player.php"
+                ? Ok("<video><source src=\"https://cdn2.test/ane-no-show-2/1080p.mp4\" type=\"video/mp4\"></video>")
+                : null;
 
-            Assert.Equal(expected, path);
-            Assert.Equal(new Uri(new Uri(site), path).PathAndQuery, new Uri(episode).PathAndQuery);
+            var streams = await Create().GetStreamsAsync("watch/ane-no-show-episode-2/", CancellationToken.None);
+
+            Assert.Equal("https://cdn2.test/ane-no-show-2/1080p.mp4", Assert.Single(streams).Url);
+        }
+
+        [Fact]
+        public async Task GetStreams_ExplainsAPageWithoutPlayer()
+        {
+            _override = r => r.RequestUri!.AbsolutePath == "/watch/ane-no-show-episode-2/" ? Ok("<html><title>Removed</title></html>") : null;
+
+            var error = await Assert.ThrowsAsync<HentaiHavenException>(() => Create().GetStreamsAsync("watch/ane-no-show-episode-2/", CancellationToken.None));
+
+            Assert.Contains("no player", error.Message);
         }
 
         [Fact]
@@ -306,16 +300,33 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         }
 
         [Fact]
-        public async Task FetchMedia_SendsTheSitesHeadersAndRange()
+        public async Task FetchMedia_SendsThePlayerAsReferer()
         {
-            _override = _ => Ok("segment");
+            var client = Create();
+            await client.GetStreamsAsync("watch/ane-no-show-episode-2/", CancellationToken.None);
+            _requests.Clear();
+            _override = _ => Ok("video");
 
-            using var response = await Create().FetchMediaAsync(new Uri("https://cdn.test/a.ts"), "bytes=0-99", CancellationToken.None);
+            using var video = await client.FetchMediaAsync(new Uri("https://cdn.test/ane-no-show-2.mp4"), "bytes=0-99", CancellationToken.None);
+            using var other = await client.FetchMediaAsync(new Uri("https://unknown.test/a.mp4"), null, CancellationToken.None);
 
-            var request = Assert.Single(_requests);
-            Assert.Equal(Site, request.Headers.Referrer?.AbsoluteUri);
-            Assert.Equal("https://haven.test", request.Headers.GetValues("Origin").Single());
-            Assert.Equal("bytes=0-99", request.Headers.GetValues("Range").Single());
+            Assert.Equal(Player + "v/abc/", _requests[0].Headers.Referrer?.AbsoluteUri);
+            Assert.Equal("https://player.test", _requests[0].Headers.GetValues("Origin").Single());
+            Assert.Equal("bytes=0-99", _requests[0].Headers.GetValues("Range").Single());
+            Assert.Equal(Site, _requests[1].Headers.Referrer?.AbsoluteUri);
+        }
+
+        [Theory]
+        [InlineData("https://haven.test/", "https://haven.test/watch/a-episode-1/", "watch/a-episode-1/")]
+        [InlineData("https://haven.test/sub/", "https://haven.test/sub/watch/a-episode-1/", "watch/a-episode-1/")]
+        [InlineData("https://haven.test/sub/", "https://www.haven.test/watch/a/?p=1", "/watch/a/?p=1")]
+        [InlineData("https://haven.test/", "https://cdn.test/watch/a/", "https://cdn.test/watch/a/")]
+        public void RelativePath_ResolvesBackToTheEpisode(string site, string episode, string expected)
+        {
+            var path = HentaiHavenClient.RelativePath(new Uri(site), episode);
+
+            Assert.Equal(expected, path);
+            Assert.Equal(new Uri(new Uri(site), path).PathAndQuery, new Uri(episode).PathAndQuery);
         }
 
         [Fact]
@@ -332,7 +343,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         [Fact]
         public void Merge_KeepsEpisodesOfOneSourceThatShareANumber()
         {
-            var haven = new[] { Haven("Show", 1), Haven("Show", 1, "watch/show/episode-1-preview/") };
+            var haven = new[] { Haven("Show", 1), Haven("Show", 1, "watch/show-episode-1-preview/") };
 
             Assert.Equal(2, HentaiCatalog.Merge([haven]).Count);
         }
@@ -348,31 +359,20 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             EpisodeNumber = episode,
         };
 
-        private static HttpResponseMessage Ok(string body) => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/html") };
-
         private sealed class Handler : HttpMessageHandler
         {
             private readonly HentaiHavenTests _test;
 
             public Handler(HentaiHavenTests test) => _test = test;
 
-            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             {
                 lock (_test._requests)
                 {
                     _test._requests.Add(request);
                 }
 
-                if (request.Content is not null)
-                {
-                    var body = await request.Content.ReadAsStringAsync(cancellationToken);
-                    lock (_test._requests)
-                    {
-                        _test._bodies[request.RequestUri!.AbsoluteUri] = body;
-                    }
-                }
-
-                return _test.Respond(request);
+                return Task.FromResult(_test.Respond(request));
             }
         }
 

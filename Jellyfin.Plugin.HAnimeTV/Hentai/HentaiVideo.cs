@@ -38,8 +38,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
     }
 
     /// <summary>
-    /// An episode of the catalog: an entry of hanime.tv's search dataset, or an episode of a
-    /// Hentai Haven series.
+    /// An episode of the catalog: an entry of hanime.tv's search dataset, or an episode of
+    /// oppai.stream or Hentai Haven.
     /// </summary>
     public sealed partial class HentaiVideo
     {
