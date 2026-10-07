@@ -41,8 +41,8 @@ CATALOG = [
      "description": "<p>The second episode.</p>", "views": 200, "likes": 20, "dislikes": 2,
      "created_at_unix": 1700100000, "released_at_unix": 1690100000,
      "cover_url": f"{BASE}/images/cover.jpg", "poster_url": f"{BASE}/images/cover.jpg"},
-    {"id": 3, "name": "Hidden Video", "slug": "hidden-video", "brand": "Other Studio", "tags": ["skipme"],
-     "description": "Tagged to be hidden.", "views": 100, "likes": 1, "dislikes": 0, "is_censored": True,
+    {"id": 3, "name": "Hidden Video", "slug": "hidden-video", "brand": "Other Studio", "tags": ["skipme", "censored"],
+     "description": "Tagged to be hidden.", "views": 100, "likes": 1, "dislikes": 0,
      "created_at_unix": 1700200000, "released_at_unix": 1690200000,
      "cover_url": f"{BASE}/images/cover.jpg", "poster_url": f"{BASE}/images/cover.jpg"},
 ]
@@ -107,7 +107,8 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("X-Signature-Version") != "app2" or not recent(claim) or self.headers.get("X-Signature") != expected:
                 return self.deny("bad app2 signature")
             self.log(status=200, kind="catalog")
-            return self.reply(200, json.dumps(CATALOG).encode())
+            # As hanime.tv answers: the videos under "data", next to the site's ads
+            return self.reply(200, json.dumps({"data": CATALOG, "ads": {"all-nav-link-1": {"href": "https://example.com"}}}).encode())
 
         if path.startswith("/hls/") or path.startswith("/images/"):
             if path.startswith("/hls/") and "Mozilla" not in self.headers.get("User-Agent", ""):

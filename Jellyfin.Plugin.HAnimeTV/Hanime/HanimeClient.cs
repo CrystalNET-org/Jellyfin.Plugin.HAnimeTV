@@ -133,25 +133,36 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         }
 
         /// <summary>
-        /// Reads the catalog: an array of videos, or (older responses) an object whose "hits"
-        /// is that array or a string containing it.
+        /// Reads the catalog: an array of videos, or an object whose "data" (current responses,
+        /// next to "ads") or "hits" (older ones) is that array or a string containing it.
         /// </summary>
         internal static IReadOnlyList<HanimeVideo> ParseCatalog(JsonElement root)
         {
-            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("hits", out var hits))
+            if (root.ValueKind == JsonValueKind.Object)
             {
-                if (hits.ValueKind == JsonValueKind.String)
+                foreach (var name in (string[])["data", "hits"])
                 {
-                    using var inner = JsonDocument.Parse(hits.GetString()!);
-                    return ParseCatalog(inner.RootElement);
-                }
+                    if (root.TryGetProperty(name, out var list) && list.ValueKind is JsonValueKind.Array or JsonValueKind.String)
+                    {
+                        if (list.ValueKind == JsonValueKind.String)
+                        {
+                            using var inner = JsonDocument.Parse(list.GetString()!);
+                            return ParseCatalog(inner.RootElement);
+                        }
 
-                root = hits;
+                        root = list;
+                        break;
+                    }
+                }
             }
 
             if (root.ValueKind != JsonValueKind.Array)
             {
-                throw new HanimeException("The catalog has an unknown format");
+                // Names the fields, so that a changed format can be told apart from an error page
+                var fields = root.ValueKind == JsonValueKind.Object
+                    ? "an object with " + string.Join(", ", root.EnumerateObject().Select(p => p.Name).Take(10))
+                    : root.ValueKind.ToString().ToLowerInvariant();
+                throw new HanimeException("The catalog has an unknown format: " + fields);
             }
 
             var videos = new List<HanimeVideo>();

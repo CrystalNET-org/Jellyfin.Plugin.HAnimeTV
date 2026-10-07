@@ -115,7 +115,9 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
                 Views = Number(item, "views") ?? 0,
                 Likes = Number(item, "likes") ?? 0,
                 Dislikes = Number(item, "dislikes") ?? 0,
-                IsCensored = item.TryGetProperty("is_censored", out var censored) && censored.ValueKind == JsonValueKind.True,
+                // The catalog marks censorship with the tag; older responses had is_censored
+                IsCensored = tags.Contains("censored", StringComparer.OrdinalIgnoreCase)
+                    || (item.TryGetProperty("is_censored", out var censored) && censored.ValueKind == JsonValueKind.True),
                 CreatedAt = Time(item, "created_at_unix") ?? Time(item, "created_at"),
                 ReleasedAt = Time(item, "released_at_unix") ?? Time(item, "released_at"),
                 DurationMs = Number(item, "duration_in_ms") is > 0 and var duration ? duration : null,

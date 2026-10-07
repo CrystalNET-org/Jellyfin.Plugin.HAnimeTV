@@ -52,6 +52,13 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             Assert.Equal(17, video.Views);
         }
 
+        [Fact]
+        public void FromJson_TakesCensorshipFromTheTag()
+        {
+            Assert.True(Parse("""{ "name": "A", "slug": "a", "tags": ["Censored"] }""")!.IsCensored);
+            Assert.False(Parse("""{ "name": "B", "slug": "b", "tags": ["uncensored"] }""")!.IsCensored);
+        }
+
         [Theory]
         [InlineData("""{ "name": "No slug" }""")]
         [InlineData("""{ "slug": "no-name" }""")]
