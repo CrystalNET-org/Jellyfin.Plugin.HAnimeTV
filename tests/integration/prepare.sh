@@ -45,7 +45,7 @@ cat > "$ROOT/config/plugins/configurations/Jellyfin.Plugin.HAnimeTV.xml" <<XML
 XML
 
 # 30 seconds of H.264 and AAC in 2-second HLS segments, like hanime.tv's streams
-for slug in test-show-1 test-show-2 hidden-video haven-test-show-3 haven-only-1 ph-hls1; do
+for slug in test-show-1 test-show-2 hidden-video ph-hls1; do
   mkdir -p "$ROOT/media/hls/$slug"
   $FFMPEG -hide_banner -loglevel error -y -f lavfi -i testsrc2=size=1280x720:rate=24 -f lavfi -i sine=frequency=440 \
     -t 30 -c:v libx264 -preset ultrafast -g 48 -c:a aac -shortest \

@@ -48,7 +48,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Streaming
         public string Pornhub(string viewkey, bool hls = true) => Link(PornhubPath, viewkey, hls);
 
         /// <param name="path">The episode page's path at Hentai Haven.</param>
-        public string HentaiHaven(string path) => Link(HentaiHavenPath, EncodeId(path));
+        /// <param name="hls">Whether the episode's stream is HLS; else the link is an MP4 file.</param>
+        public string HentaiHaven(string path, bool hls = true) => Link(HentaiHavenPath, EncodeId(path), hls);
 
         /// <param name="path">The episode page's address at oppai.stream.</param>
         /// <param name="hls">Whether the episode's stream is HLS; else the link is an MP4 file.</param>
@@ -70,7 +71,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Streaming
         {
             HentaiSource.Hanime => Hanime(video.Id),
             HentaiSource.OppaiStream => OppaiStream(video.Id, !video.StreamIsFile),
-            _ => HentaiHaven(video.Id),
+            _ => HentaiHaven(video.Id, !video.StreamIsFile),
         };
 
         /// <summary>

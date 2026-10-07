@@ -70,9 +70,9 @@ A provider's settings, with its user selection and the access Jellyfin grants ea
    and save. Under **Pornhub**, choose *Channel* and tick its users.
 
 In library mode, the plugin then writes the library's files, creates the **Hentai** shows
-library and has Jellyfin scan it. The first sync reads every oppai.stream episode and Hentai
-Haven series once, which takes a few minutes; later syncs only read what changed. With both catalogs the first scan takes
-a few minutes too.
+library and has Jellyfin scan it. The first sync reads every oppai.stream and Hentai Haven
+episode page once, which takes a few minutes; later syncs only read new episodes. With all three
+catalogs (several thousand episodes) the first scan takes a few minutes too.
 
 To install without the catalog, extract a
 [release](https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/releases) zip into a
@@ -94,9 +94,9 @@ hanime.tv/
 ```
 
 hanime.tv's videos are grouped into series by their names ("Title 2" is episode 2 of "Title");
-oppai.stream and Hentai Haven name their series and number their episodes. Series are matched by name, ignoring
-case, spaces and punctuation. Only changed files are written, so Jellyfin rescans only what
-changed.
+oppai.stream and Hentai Haven name their series and number their episodes. Series are matched
+by name, ignoring case, spaces and punctuation. Only changed files are written, so Jellyfin
+rescans only what changed.
 
 **Channel mode:** the channel lists recently uploaded and new releases, most viewed and most
 liked, series A–Z, genres and studios, built from the same merged catalog. The Pornhub channel
