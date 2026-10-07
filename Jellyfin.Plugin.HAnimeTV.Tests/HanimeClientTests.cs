@@ -37,6 +37,42 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         }
 
         [Fact]
+        public void ParseCatalog_ReadsTheCurrentFormat()
+        {
+            // As hanime.tv answers since 2026-10: the videos under "data", next to the site's ads
+            using var current = JsonDocument.Parse("""
+                {
+                  "data": [{
+                    "id": 5, "name": "Some Title 2", "search_titles": "Some Title 2 Other Name", "slug": "some-title-2",
+                    "description": "<p>Text.</p>", "views": 3302538, "brand": "Studio", "brand_id": 92,
+                    "cover_url": "https://hanime-cdn.com/images/covers/some-title-2-cv3.png",
+                    "poster_url": "https://hanime-cdn.com/images/posters/some-title-2-pv1.jpg",
+                    "likes": 8418, "dislikes": 193, "downloads": 1, "tags": ["censored", "hd"],
+                    "created_at_unix": 1399380969, "released_at_unix": 1398384005,
+                    "created_at": "2014-05-06T12:56:09.000Z", "released_at": "2014-04-25T00:00:05.000Z"
+                  }],
+                  "ads": { "all-nav-link-1": { "href": "https://example.com", "label": "Ad" } }
+                }
+                """);
+
+            var video = Assert.Single(HanimeClient.ParseCatalog(current.RootElement));
+
+            Assert.Equal("some-title-2", video.Slug);
+            Assert.True(video.IsCensored);
+            Assert.Equal(new DateTime(2014, 5, 6, 12, 56, 9, DateTimeKind.Utc), video.CreatedAt);
+        }
+
+        [Fact]
+        public void ParseCatalog_NamesTheFieldsOfUnknownFormats()
+        {
+            using var unknown = JsonDocument.Parse("""{ "error": "maintenance", "videos": 1 }""");
+
+            var error = Assert.Throws<HanimeException>(() => HanimeClient.ParseCatalog(unknown.RootElement));
+
+            Assert.Contains("error, videos", error.Message);
+        }
+
+        [Fact]
         public void ParseStreams_ResolvesAndSortsGuestStreams()
         {
             var payload = JsonNode.Parse("""
