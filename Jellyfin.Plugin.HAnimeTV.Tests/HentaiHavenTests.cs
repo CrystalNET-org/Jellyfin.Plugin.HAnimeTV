@@ -53,7 +53,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             var handler = new Handler(this);
             var factory = new Mock<IHttpClientFactory>();
             factory.Setup(f => f.CreateClient(It.IsAny<string>())).Returns(() => new HttpClient(handler, disposeHandler: false));
-            return new HentaiHavenClient(factory.Object, () => _config, cacheFile, NullLogger.Instance, new FixedTime());
+            return new HentaiHavenClient(factory.Object, () => _config, cacheFile, NullLogger.Instance, new FixedTime(), TimeSpan.Zero);
         }
 
         private HttpResponseMessage Respond(HttpRequestMessage request)
@@ -81,6 +81,25 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         }
 
         private static HttpResponseMessage Ok(string body) => new(HttpStatusCode.OK) { Content = new StringContent(body, Encoding.UTF8, "text/html") };
+
+        // Cloudflare's bot check, as it answers browsers it does not trust yet
+        private static HttpResponseMessage Challenge()
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent("<html><head><title>Just a moment...</title></head><body><script>window._cf_chl_opt={cZone:'haven.test'};</script></body></html>"),
+            };
+            response.Headers.TryAddWithoutValidation("cf-mitigated", "challenge");
+            return response;
+        }
+
+        private List<string> EpisodeRequests()
+        {
+            lock (_requests)
+            {
+                return _requests.Select(r => r.RequestUri!.AbsolutePath).Where(p => p.StartsWith("/watch/", StringComparison.Ordinal)).ToList();
+            }
+        }
 
         [Fact]
         public void Listing_ReadsTheCardsAndPages()
@@ -174,6 +193,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         {
             Assert.True(HentaiHavenPage.IsChallenge("<html><head><title>Just a moment...</title>"));
             Assert.False(HentaiHavenPage.IsChallenge(Home(1)));
+            // The script Cloudflare adds to the sites' own pages
+            Assert.False(HentaiHavenPage.IsChallenge(Home(1) + "<script src=\"/cdn-cgi/challenge-platform/scripts/jsd/main.js\"></script>"));
         }
 
         [Fact]
@@ -253,6 +274,119 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             var error = await Assert.ThrowsAsync<HentaiHavenException>(() => Create().GetCatalogAsync(CancellationToken.None));
 
             Assert.Contains("bot check", error.Message);
+        }
+
+        [Fact]
+        public async Task GetCatalog_StopsAtABotCheckAndKeepsWhatItHas()
+        {
+            await Create(_cacheFile).GetCatalogAsync(CancellationToken.None);
+            // Twenty new episodes, and Cloudflare now checks every episode page
+            var added = Enumerable.Range(1, 20).Select(n => ("new-show", "New Show", n)).ToArray();
+            _override = r => r.RequestUri!.AbsoluteUri == Site
+                ? Ok(Home(2, added.Concat([("ane-no-show", "Ane no Show", 2), ("other-show", "Other Show", 1)]).ToArray()))
+                : r.RequestUri.AbsolutePath.StartsWith("/watch/new-show", StringComparison.Ordinal) ? Challenge() : null;
+            _requests.Clear();
+
+            var catalog = await Create(_cacheFile).GetCatalogAsync(CancellationToken.None);
+
+            Assert.Equal(new[] { "Ane no Show 2", "Other Show 1", "Ane no Show 1" }, catalog.Select(v => v.Name));
+            // The episodes read before were not read again, and the crawl stopped soon
+            Assert.DoesNotContain("/watch/ane-no-show-episode-2/", EpisodeRequests());
+            Assert.InRange(EpisodeRequests().Count, 1, 8);
+        }
+
+        [Fact]
+        public async Task GetCatalog_ReportsABotCheckWhenItHasNothing()
+        {
+            _override = r => r.RequestUri!.AbsolutePath.StartsWith("/watch/", StringComparison.Ordinal) ? Challenge() : null;
+
+            var error = await Assert.ThrowsAsync<HentaiHavenException>(() => Create().GetCatalogAsync(CancellationToken.None));
+
+            Assert.Contains("bot check", error.Message);
+            Assert.Contains("FlareSolverr", error.Message);
+        }
+
+        [Fact]
+        public async Task GetCatalog_ReadsEpisodesAgainThatHaveNoPlayer()
+        {
+            // Read by version 0.3.0, which did not keep the player
+            File.WriteAllText(_cacheFile, $$"""{"Site":"{{Site}}","Episodes":[{"Url":"{{Site}}watch/ane-no-show-episode-1/","Title":"Ane no Show Episode 1","SeriesName":"Ane no Show","Number":1,"FetchedAt":"{{Now:O}}"}]}""");
+
+            await Create(_cacheFile).GetCatalogAsync(CancellationToken.None);
+
+            Assert.Contains("/watch/ane-no-show-episode-1/", EpisodeRequests());
+        }
+
+        [Fact]
+        public async Task GetCatalog_DoesNotReadPagesWithoutPlayerAgain()
+        {
+            _override = r => r.RequestUri!.AbsolutePath == "/watch/other-show-episode-1/" ? Ok("<html><h1 class=\"video_title\">Other Show Episode 1</h1></html>") : null;
+            await Create(_cacheFile).GetCatalogAsync(CancellationToken.None);
+            _requests.Clear();
+
+            await Create(_cacheFile).GetCatalogAsync(CancellationToken.None);
+
+            Assert.Empty(EpisodeRequests());
+        }
+
+        [Fact]
+        public async Task GetCatalog_PassesBotChecksWithFlareSolverr()
+        {
+            _config.FlareSolverrUrl = "http://solver.test:8191/";
+            var solved = 0;
+            _override = r =>
+            {
+                if (r.RequestUri!.Host == "solver.test")
+                {
+                    Interlocked.Increment(ref solved);
+                    var url = System.Text.Json.JsonDocument.Parse(r.Content!.ReadAsStringAsync().Result).RootElement.GetProperty("url").GetString()!;
+                    using var page = Respond(new HttpRequestMessage(HttpMethod.Get, url) { Headers = { { "Cookie", "cf_clearance=ok" }, { "User-Agent", "Solver Browser/1.0" } } });
+                    var html = System.Text.Json.JsonSerializer.Serialize(page.Content.ReadAsStringAsync().Result);
+                    return Ok($$"""{"status":"ok","message":"Challenge solved!","solution":{"url":"{{url}}","status":{{(int)page.StatusCode}},"headers":{},"response":{{html}},"cookies":[{"name":"cf_clearance","value":"ok","domain":".haven.test"}],"userAgent":"Solver Browser/1.0"},"version":"3.3.21"}""");
+                }
+
+                // Pages of the site only with FlareSolverr's cookie and browser
+                return r.RequestUri.Host == "haven.test"
+                    && !(r.Headers.TryGetValues("Cookie", out var cookie) && cookie.Single().Contains("cf_clearance=ok", StringComparison.Ordinal)
+                        && r.Headers.UserAgent.ToString() == "Solver Browser/1.0")
+                    ? Challenge() : null;
+            };
+
+            var catalog = await Create().GetCatalogAsync(CancellationToken.None);
+
+            Assert.Equal(3, catalog.Count);
+            // Once: the requests after it go in with its cookie
+            Assert.Equal(1, solved);
+            var solverRequest = Assert.Single(_requests, r => r.RequestUri!.Host == "solver.test");
+            Assert.Equal("http://solver.test:8191/v1", solverRequest.RequestUri!.AbsoluteUri);
+        }
+
+        [Fact]
+        public async Task GetCatalog_ReportsFlareSolverrsErrors()
+        {
+            _config.FlareSolverrUrl = "http://solver.test:8191";
+            _override = r => r.RequestUri!.Host == "solver.test"
+                ? new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("""{"status":"error","message":"Error: Error solving the challenge. Timeout after 60.0 seconds."}""") }
+                : Challenge();
+
+            var error = await Assert.ThrowsAsync<HentaiHavenException>(() => Create().GetCatalogAsync(CancellationToken.None));
+
+            Assert.Contains("FlareSolverr could not get https://haven.test/: Error: Error solving the challenge", error.Message);
+        }
+
+        [Fact]
+        public async Task GetStreams_GoesToTheKnownPlayerWithoutTheSite()
+        {
+            var client = Create();
+            await client.GetCatalogAsync(CancellationToken.None);
+            _requests.Clear();
+            // Cloudflare checks the site, but not the player
+            _override = r => r.RequestUri!.Host == "haven.test" ? Challenge() : null;
+
+            var streams = await client.GetStreamsAsync("watch/ane-no-show-episode-2/", CancellationToken.None);
+
+            Assert.Equal("https://cdn.test/ane-no-show-2.mp4", Assert.Single(streams).Url);
+            Assert.Empty(EpisodeRequests());
         }
 
         [Fact]

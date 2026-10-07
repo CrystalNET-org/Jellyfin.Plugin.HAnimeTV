@@ -100,6 +100,12 @@ namespace Jellyfin.Plugin.HAnimeTV.Configuration
         public string HentaiHavenUrl { get; set; } = DefaultHentaiHavenUrl;
 
         /// <summary>
+        /// Gets or sets the address of a FlareSolverr, which reads the pages oppai.stream and
+        /// Hentai Haven answer with Cloudflare's bot check; empty for none.
+        /// </summary>
+        public string FlareSolverrUrl { get; set; } = string.Empty;
+
+        /// <summary>
         /// Gets or sets genres whose videos are left out.
         /// </summary>
         public string[] HiddenTags { get; set; } = Array.Empty<string>();

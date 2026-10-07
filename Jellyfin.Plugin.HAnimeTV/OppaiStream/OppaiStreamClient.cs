@@ -58,7 +58,10 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
         /// <param name="cacheFile">Where the episodes' pages are kept between restarts; null for nowhere.</param>
         public OppaiStreamClient(IHttpClientFactory httpClientFactory, Func<HentaiSettings> configuration, string? cacheFile, ILogger logger, TimeProvider? time = null)
         {
-            _http = new SiteHttp(httpClientFactory, (message, inner) => inner is null ? new OppaiStreamException(message) : new OppaiStreamException(message, inner));
+            _http = new SiteHttp(
+                httpClientFactory,
+                (message, inner) => inner is null ? new OppaiStreamException(message) : new OppaiStreamException(message, inner),
+                () => configuration().FlareSolverrUrl);
             _configuration = configuration;
             _cacheFile = cacheFile;
             _logger = logger;

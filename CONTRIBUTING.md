@@ -98,6 +98,12 @@ hentaihaven.co is a Next.js site whose videos are on a separate host, nhplayer (
   lists its servers as `data-id="/player.php?vid=…"`, where `vid` is base64 of
   "address|expiry|signature": the address is the MP4 file. A server whose player page names
   stream addresses itself is preferred. The video host gets the player's page as Referer.
+  The player's address is kept with the episode, so playback does not read the site.
+- **Cloudflare:** the site answers clients that read it fast with a bot check (`cf-mitigated:
+  challenge`, a "Just a moment..." page). Its pages are read at most two per second
+  (`SiteHttp`); a crawl stops at the first check and the next sync reads on. With a FlareSolverr
+  address set, a refused page is read through FlareSolverr's `/v1` `request.get`, and its
+  `cf_clearance` cookie and browser are used for the requests that follow (oppai.stream too).
 
 If oppai.stream or Hentai Haven cannot be read and was never read before, the sync leaves it
 out rather than failing; once read, its last catalog is used instead.

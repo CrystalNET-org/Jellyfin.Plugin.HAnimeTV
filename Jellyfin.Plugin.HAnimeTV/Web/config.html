@@ -220,7 +220,16 @@
                         <div class="inputContainer htSourceUrl">
                             <input type="url" id="hentaiHavenUrl" is="emby-input" label="Hentai Haven address" />
                             <div class="fieldDescription">The site's address. Its first full read takes a while: every episode's page is read
-                                once, later syncs only read new episodes.</div>
+                                once, two per second, so that Cloudflare does not take the server for a bot; later syncs only read new
+                                episodes. If Cloudflare stops a read with its bot check anyway, the next sync reads on.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input type="url" id="flareSolverrUrl" is="emby-input" label="FlareSolverr address (optional)" />
+                            <div class="fieldDescription">Only needed if oppai.stream or Hentai Haven keep answering with Cloudflare's bot check
+                                (see <em>Test</em>): the pages they refuse are then read through
+                                <a is="emby-linkbutton" class="button-link" href="https://github.com/FlareSolverr/FlareSolverr" target="_blank" rel="noopener">FlareSolverr</a>,
+                                e.g. <code>http://flaresolverr:8191</code>. Run it where its requests come from the same public address as
+                                Jellyfin's: the cookie it gets from Cloudflare then lets Jellyfin in directly.</div>
                         </div>
                         <h4>Users</h4>
                         <div class="htUsers" data-provider="Hentai">Loading…</div>
@@ -409,6 +418,7 @@
                     StreamHost: 'https://hanime.tv',
                     HentaiHavenUrl: 'https://hentaihaven.co',
                     OppaiStreamUrl: 'https://oppai.stream',
+                    FlareSolverrUrl: '',
                     PornhubApiUrl: 'https://www.pornhub.com/webmasters',
                     PornhubSiteUrl: 'https://www.pornhub.com',
                 };
@@ -613,6 +623,7 @@
                         $('#oppaiStreamUrl').value = hentai.OppaiStreamUrl || defaults.OppaiStreamUrl;
                         $('#hentaiHavenEnabled').checked = hentai.HentaiHavenEnabled !== false;
                         $('#hentaiHavenUrl').value = hentai.HentaiHavenUrl || defaults.HentaiHavenUrl;
+                        $('#flareSolverrUrl').value = hentai.FlareSolverrUrl || defaults.FlareSolverrUrl;
                         $('#hiddenTags').value = (hentai.HiddenTags || []).join(', ');
                         $('#hideCensored').checked = !!hentai.HideCensored;
                         $('#catalogCacheHours').value = hentai.CatalogCacheHours || 6;
@@ -653,6 +664,7 @@
                     hentai.OppaiStreamUrl = $('#oppaiStreamUrl').value.trim().replace(/\/+$/, '') || defaults.OppaiStreamUrl;
                     hentai.HentaiHavenEnabled = $('#hentaiHavenEnabled').checked;
                     hentai.HentaiHavenUrl = $('#hentaiHavenUrl').value.trim().replace(/\/+$/, '') || defaults.HentaiHavenUrl;
+                    hentai.FlareSolverrUrl = $('#flareSolverrUrl').value.trim().replace(/\/+$/, '');
                     hentai.HiddenTags = list($('#hiddenTags').value);
                     hentai.HideCensored = $('#hideCensored').checked;
                     hentai.CatalogCacheHours = parseInt($('#catalogCacheHours').value, 10) || 6;
