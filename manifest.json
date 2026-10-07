@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/main/images/thumb.png",
     "versions": [
       {
+        "version": "0.2.0.0",
+        "changelog": "- Rework into Adult Media: hentai from hanime.tv and Hentai Haven, Pornhub",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/releases/download/0.2.0/hanime.tv_0.2.0.0.zip",
+        "checksum": "b378ad48fdf388824109abe871fcf29b",
+        "timestamp": "2026-10-07T15:59:58Z"
+      },
+      {
         "version": "0.1.5.0",
         "changelog": "- Flag stream links that use Jellyfin's guessed address",
         "targetAbi": "12.1.0.0",
