@@ -37,3 +37,6 @@ artifacts/
 
 # Integration test root
 .integration/
+
+# Python
+__pycache__/
