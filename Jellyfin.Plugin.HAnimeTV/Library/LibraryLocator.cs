@@ -25,7 +25,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
         {
             get
             {
-                var configured = Plugin.Instance?.Configuration.LibraryPath;
+                var configured = Plugin.Instance?.Configuration.Hentai.LibraryPath;
+                // The folder of versions before 0.2, which only had hanime.tv
                 return Normalize(string.IsNullOrWhiteSpace(configured) ? Path.Combine(_paths.DataPath, "hanime.tv") : configured);
             }
         }

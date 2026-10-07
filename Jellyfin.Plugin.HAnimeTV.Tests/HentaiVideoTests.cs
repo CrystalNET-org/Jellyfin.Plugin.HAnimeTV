@@ -1,15 +1,16 @@
 using System.Text.Json;
 using Jellyfin.Plugin.HAnimeTV.Hanime;
+using Jellyfin.Plugin.HAnimeTV.Hentai;
 using Xunit;
 
 namespace Jellyfin.Plugin.HAnimeTV.Tests
 {
-    public class HanimeVideoTests
+    public class HentaiVideoTests
     {
-        private static HanimeVideo? Parse(string json)
+        private static HentaiVideo? Parse(string json)
         {
             using var document = JsonDocument.Parse(json);
-            return HanimeVideo.FromJson(document.RootElement);
+            return HentaiVideo.FromHanime(document.RootElement);
         }
 
         [Fact]
@@ -25,7 +26,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
                 }
                 """)!;
 
-            Assert.Equal("some-title-2", video.Slug);
+            Assert.Equal("some-title-2", video.Id);
             Assert.Equal("Some & Title 2", video.Name);
             Assert.Equal(new[] { "hd", "Plot" }, video.Tags);
             Assert.Equal("https://cdn/cover.jpg", video.PosterUrl);
@@ -75,7 +76,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         [InlineData("Re:Zero2", "Re:Zero2", 1)]
         public void SeriesInfo_SplitsTrailingEpisodeNumbers(string name, string series, int episode)
         {
-            var video = new HanimeVideo { Slug = "s", Name = name };
+            var video = new HentaiVideo { Id = "s", Name = name };
 
             Assert.Equal((series, episode), video.SeriesInfo());
         }

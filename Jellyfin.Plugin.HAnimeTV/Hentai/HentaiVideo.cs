@@ -3,18 +3,55 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-namespace Jellyfin.Plugin.HAnimeTV.Hanime
+namespace Jellyfin.Plugin.HAnimeTV.Hentai
 {
     /// <summary>
-    /// A video of the catalog (an entry of hanime.tv's search dataset).
+    /// Where a video comes from, in order of preference: an episode both sites have comes
+    /// from the first.
     /// </summary>
-    public sealed partial class HanimeVideo
+    public enum HentaiSource
+    {
+        Hanime,
+        HentaiHaven,
+    }
+
+    /// <summary>
+    /// An episode of the catalog: an entry of hanime.tv's search dataset, or an episode of a
+    /// Hentai Haven series.
+    /// </summary>
+    public sealed partial class HentaiVideo
     {
         private (string Series, int Episode)? _seriesInfo;
 
-        public required string Slug { get; init; }
+        public HentaiSource Source { get; init; }
+
+        /// <summary>
+        /// Gets the video's id at its source: hanime.tv's slug, or the path of Hentai Haven's
+        /// episode page.
+        /// </summary>
+        public required string Id { get; init; }
 
         public required string Name { get; init; }
+
+        /// <summary>
+        /// Gets the series, if the source names it; else it is derived from <see cref="Name"/>.
+        /// </summary>
+        public string? SeriesName { get; init; }
+
+        /// <summary>
+        /// Gets the episode's number, if the source numbers it.
+        /// </summary>
+        public int? EpisodeNumber { get; init; }
+
+        /// <summary>
+        /// Gets the video's page at its source.
+        /// </summary>
+        public string? PageUrl { get; init; }
+
+        /// <summary>
+        /// Gets the id that is unique across sources: "hanime:slug" or "hentaihaven:path".
+        /// </summary>
+        public string Key => KeyOf(Source, Id);
 
         public string? Description { get; init; }
 
@@ -57,12 +94,57 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
                 return cached;
             }
 
+            if (!string.IsNullOrWhiteSpace(SeriesName))
+            {
+                _seriesInfo = (SeriesName.Trim(), EpisodeNumber ?? 1);
+                return _seriesInfo.Value;
+            }
+
             var match = EpisodePattern().Match(Name);
             _seriesInfo = match.Success && int.TryParse(match.Groups["episode"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var episode)
                 ? (match.Groups["series"].Value.Trim(), episode)
                 : (Name.Trim(), 1);
             return _seriesInfo.Value;
         }
+
+        /// <summary>
+        /// Gets what series names are compared by: "Ane Koi" and "ane-koi!" are the same series.
+        /// </summary>
+        public string SeriesKey() => SeriesKeyOf(SeriesInfo().Series);
+
+        public static string SeriesKeyOf(string name) =>
+            new string(name.Normalize(System.Text.NormalizationForm.FormKD).Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
+
+        public static string KeyOf(HentaiSource source, string id) => SourcePrefix(source) + ":" + id;
+
+        /// <summary>
+        /// Reads a <see cref="Key"/>; null if it is none.
+        /// </summary>
+        public static (HentaiSource Source, string Id)? ParseKey(string key)
+        {
+            var colon = key.IndexOf(':', StringComparison.Ordinal);
+            if (colon <= 0 || colon == key.Length - 1)
+            {
+                return null;
+            }
+
+            var prefix = key[..colon];
+            foreach (var source in Enum.GetValues<HentaiSource>())
+            {
+                if (prefix == SourcePrefix(source))
+                {
+                    return (source, key[(colon + 1)..]);
+                }
+            }
+
+            return null;
+        }
+
+        public static string SourcePrefix(HentaiSource source) => source switch
+        {
+            HentaiSource.Hanime => "hanime",
+            _ => "hentaihaven",
+        };
 
         /// <summary>
         /// Gets the description as plain text.
@@ -81,9 +163,9 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         }
 
         /// <summary>
-        /// Reads an entry of the dataset; null if it has no slug or name.
+        /// Reads an entry of hanime.tv's dataset; null if it has no slug or name.
         /// </summary>
-        public static HanimeVideo? FromJson(JsonElement item)
+        public static HentaiVideo? FromHanime(JsonElement item)
         {
             if (item.ValueKind != JsonValueKind.Object)
             {
@@ -112,9 +194,11 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
                     .ToArray()
                 : Array.Empty<string>();
 
-            return new HanimeVideo
+            return new HentaiVideo
             {
-                Slug = slug.Trim(),
+                Source = HentaiSource.Hanime,
+                Id = slug.Trim(),
+                PageUrl = "https://hanime.tv/videos/hentai/" + Uri.EscapeDataString(slug.Trim()),
                 Name = WebUtility.HtmlDecode(name).Trim(),
                 Description = String(item, "description"),
                 Brand = String(item, "brand"),

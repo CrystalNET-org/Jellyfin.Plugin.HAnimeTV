@@ -22,7 +22,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
         /// </summary>
         public const string MarkerFile = ".hanime-tv-library";
 
-        private const string MarkerText = "Written by the hanime.tv plugin for Jellyfin. Everything in this folder is replaced on each sync.\n";
+        private const string MarkerText = "Written by the Adult Media plugin for Jellyfin. Everything in this folder is replaced on each sync.\n";
 
         private static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false);
 

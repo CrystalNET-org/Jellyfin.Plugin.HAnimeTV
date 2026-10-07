@@ -1,111 +1,165 @@
+using System.Text.Json.Serialization;
+using System.Xml.Serialization;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.HAnimeTV.Configuration
 {
     /// <summary>
-    /// Plugin settings.
+    /// Plugin settings: shared ones, and a section per provider.
     /// </summary>
     public class PluginConfiguration : BasePluginConfiguration
     {
-        public const string DefaultSearchUrl = "https://guest.freeanimehentai.net/api/v11/search_hvs";
-
-        public const string DefaultHandshakeUrl = "https://auth.hanime.tv/api/v11/handshake";
-
-        public const string DefaultLoginUrl = "https://www.universal-cdn.com/rapi/v7/sessions";
-
-        public const string DefaultStreamHost = "https://hanime.tv";
-
-        public const string DefaultLibraryName = "hanime.tv";
-
         /// <summary>
-        /// Gets or sets the users who see the library and can play its videos. Nobody else
-        /// does, administrators included, so a new installation shows it to no one.
-        /// </summary>
-        public Guid[] AllowedUsers { get; set; } = Array.Empty<Guid>();
-
-        /// <summary>
-        /// Gets or sets a value indicating whether the library access in the users' policies
-        /// (Dashboard → Users → Access) follows <see cref="AllowedUsers"/>.
+        /// Gets or sets a value indicating whether the channel and library access in the
+        /// users' policies (Dashboard → Users → Access) follows the providers' user selections.
         /// </summary>
         public bool EnforceAccess { get; set; } = true;
 
         /// <summary>
-        /// Gets or sets the folder the library's files are written to. Empty means
-        /// "hanime.tv" in Jellyfin's data directory.
-        /// </summary>
-        public string LibraryPath { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Gets or sets a value indicating whether the plugin creates the Jellyfin library
-        /// for <see cref="LibraryPath"/> if there is none.
-        /// </summary>
-        public bool CreateLibrary { get; set; } = true;
-
-        public string LibraryName { get; set; } = DefaultLibraryName;
-
-        /// <summary>
-        /// Gets or sets the address of this Jellyfin server that the library's stream links
-        /// use, e.g. https://jellyfin.example.com. Browsers play these links directly, so it
-        /// must be the address the clients use; Jellyfin's ffmpeg must reach it too. Empty
-        /// means Jellyfin's local address.
+        /// Gets or sets the address of this Jellyfin server in the stream links, e.g.
+        /// https://jellyfin.example.com. Browsers play the links directly and Jellyfin's ffmpeg
+        /// (and its ffmpeg workers) start streams from them, so all of them must reach it.
+        /// Empty means Jellyfin's guess of its own address.
         /// </summary>
         public string StreamBaseUrl { get; set; } = string.Empty;
 
         /// <summary>
-        /// Gets or sets the secret in the stream links. It only allows streaming hanime.tv's
+        /// Gets or sets the secret in the stream links. It only allows streaming the providers'
         /// videos through this server; generated on first use.
         /// </summary>
         public string StreamToken { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Gets or sets genres (hanime.tv tags) whose videos are left out of the library.
-        /// </summary>
-        public string[] HiddenTags { get; set; } = Array.Empty<string>();
+        public HentaiSettings Hentai { get; set; } = new();
+
+        public PornhubSettings Pornhub { get; set; } = new();
 
         /// <summary>
-        /// Gets or sets a value indicating whether censored videos are left out.
+        /// Moves the settings of versions before 0.2, which only knew hanime.tv and kept its
+        /// settings at the top level, into <see cref="Hentai"/>.
         /// </summary>
-        public bool HideCensored { get; set; }
+        /// <returns>Whether anything was moved.</returns>
+        public bool MigrateLegacySettings()
+        {
+            if (LegacyAllowedUsers is null && LegacyHiddenTags is null && LegacyHideCensored is null && LegacyEmail is null
+                && LegacyPassword is null && LegacySearchUrl is null && LegacyHandshakeUrl is null && LegacyLoginUrl is null
+                && LegacyStreamHost is null && LegacyCatalogCacheHours is null && LegacyLibraryPath is null
+                && LegacyCreateLibrary is null && LegacyLibraryName is null)
+            {
+                return false;
+            }
 
-        /// <summary>
-        /// Gets or sets the email of a hanime.tv account. Optional: guests get up to 720p,
-        /// premium accounts 1080p.
-        /// </summary>
-        public string Email { get; set; } = string.Empty;
+            Hentai ??= new HentaiSettings();
+            Hentai.AllowedUsers = LegacyAllowedUsers ?? Hentai.AllowedUsers;
+            Hentai.HiddenTags = LegacyHiddenTags ?? Hentai.HiddenTags;
+            Hentai.HideCensored = LegacyHideCensored ?? Hentai.HideCensored;
+            Hentai.Email = LegacyEmail ?? Hentai.Email;
+            Hentai.Password = LegacyPassword ?? Hentai.Password;
+            Hentai.SearchUrl = LegacySearchUrl ?? Hentai.SearchUrl;
+            Hentai.HandshakeUrl = LegacyHandshakeUrl ?? Hentai.HandshakeUrl;
+            Hentai.LoginUrl = LegacyLoginUrl ?? Hentai.LoginUrl;
+            Hentai.StreamHost = LegacyStreamHost ?? Hentai.StreamHost;
+            Hentai.CatalogCacheHours = LegacyCatalogCacheHours ?? Hentai.CatalogCacheHours;
+            Hentai.LibraryPath = LegacyLibraryPath ?? Hentai.LibraryPath;
+            Hentai.CreateLibrary = LegacyCreateLibrary ?? Hentai.CreateLibrary;
+            Hentai.LibraryName = LegacyLibraryName ?? Hentai.LibraryName;
+            // The library is what versions before 0.2 had last
+            Hentai.Mode = ProviderMode.Library;
 
-        public string Password { get; set; } = string.Empty;
+            LegacyAllowedUsers = null;
+            LegacyHiddenTags = null;
+            LegacyHideCensored = null;
+            LegacyEmail = null;
+            LegacyPassword = null;
+            LegacySearchUrl = null;
+            LegacyHandshakeUrl = null;
+            LegacyLoginUrl = null;
+            LegacyStreamHost = null;
+            LegacyCatalogCacheHours = null;
+            LegacyLibraryPath = null;
+            LegacyCreateLibrary = null;
+            LegacyLibraryName = null;
+            return true;
+        }
 
-        /// <summary>
-        /// Gets or sets the catalog endpoint (the signed search dataset). Can point to a relay.
-        /// </summary>
-        public string SearchUrl { get; set; } = DefaultSearchUrl;
+        // Settings of versions before 0.2: read from their files, never written
 
-        /// <summary>
-        /// Gets or sets the endpoint that returns a video's streams. Can point to a relay.
-        /// </summary>
-        public string HandshakeUrl { get; set; } = DefaultHandshakeUrl;
+        // Arrays as Jellyfin writes them: <AllowedUsers><guid>…</guid></AllowedUsers>
+        [XmlArray("AllowedUsers")]
+        [JsonIgnore]
+        public Guid[]? LegacyAllowedUsers { get; set; }
 
-        public string LoginUrl { get; set; } = DefaultLoginUrl;
+        [XmlArray("HiddenTags")]
+        [JsonIgnore]
+        public string[]? LegacyHiddenTags { get; set; }
 
-        /// <summary>
-        /// Gets or sets the host that relative stream paths are resolved against.
-        /// </summary>
-        public string StreamHost { get; set; } = DefaultStreamHost;
+        [XmlElement("HideCensored")]
+        [JsonIgnore]
+        public bool? LegacyHideCensored { get; set; }
 
-        /// <summary>
-        /// Gets or sets the hours the catalog is kept before it is downloaded again.
-        /// </summary>
-        public int CatalogCacheHours { get; set; } = 6;
+        [XmlElement("Email")]
+        [JsonIgnore]
+        public string? LegacyEmail { get; set; }
 
-        /// <summary>
-        /// Gets the hidden tags, trimmed and without empty entries.
-        /// </summary>
-        public IReadOnlyCollection<string> NormalizedHiddenTags() =>
-            (HiddenTags ?? Array.Empty<string>())
-                .Select(t => t?.Trim() ?? string.Empty)
-                .Where(t => t.Length > 0)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        [XmlElement("Password")]
+        [JsonIgnore]
+        public string? LegacyPassword { get; set; }
 
-        public bool IsAllowed(Guid userId) => (AllowedUsers ?? Array.Empty<Guid>()).Contains(userId);
+        [XmlElement("SearchUrl")]
+        [JsonIgnore]
+        public string? LegacySearchUrl { get; set; }
+
+        [XmlElement("HandshakeUrl")]
+        [JsonIgnore]
+        public string? LegacyHandshakeUrl { get; set; }
+
+        [XmlElement("LoginUrl")]
+        [JsonIgnore]
+        public string? LegacyLoginUrl { get; set; }
+
+        [XmlElement("StreamHost")]
+        [JsonIgnore]
+        public string? LegacyStreamHost { get; set; }
+
+        [XmlElement("CatalogCacheHours")]
+        [JsonIgnore]
+        public int? LegacyCatalogCacheHours { get; set; }
+
+        [XmlElement("LibraryPath")]
+        [JsonIgnore]
+        public string? LegacyLibraryPath { get; set; }
+
+        [XmlElement("CreateLibrary")]
+        [JsonIgnore]
+        public bool? LegacyCreateLibrary { get; set; }
+
+        [XmlElement("LibraryName")]
+        [JsonIgnore]
+        public string? LegacyLibraryName { get; set; }
+
+        public bool ShouldSerializeLegacyAllowedUsers() => false;
+
+        public bool ShouldSerializeLegacyHiddenTags() => false;
+
+        public bool ShouldSerializeLegacyHideCensored() => false;
+
+        public bool ShouldSerializeLegacyEmail() => false;
+
+        public bool ShouldSerializeLegacyPassword() => false;
+
+        public bool ShouldSerializeLegacySearchUrl() => false;
+
+        public bool ShouldSerializeLegacyHandshakeUrl() => false;
+
+        public bool ShouldSerializeLegacyLoginUrl() => false;
+
+        public bool ShouldSerializeLegacyStreamHost() => false;
+
+        public bool ShouldSerializeLegacyCatalogCacheHours() => false;
+
+        public bool ShouldSerializeLegacyLibraryPath() => false;
+
+        public bool ShouldSerializeLegacyCreateLibrary() => false;
+
+        public bool ShouldSerializeLegacyLibraryName() => false;
     }
 }

@@ -18,6 +18,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Web\config.html" />
+    <EmbeddedResource Include="Images\*.png" />
   </ItemGroup>
 
   <ItemGroup>

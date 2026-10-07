@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>hanime.tv</title>
+    <title>Adult Media</title>
 </head>
 <body>
     <div id="hanimeTvConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
-         data-require="emby-input,emby-button,emby-checkbox">
+         data-require="emby-input,emby-button,emby-checkbox,emby-select">
         <div data-role="content">
         <style>
             /* Same layout as the gRPC-ffmpeg plugin: header, section navigation on the left,
@@ -105,6 +105,9 @@
                 font-size: 0.85em;
                 white-space: nowrap;
             }
+            #hanimeTvConfigPage .htSourceUrl {
+                margin-left: 2.5em;
+            }
             #hanimeTvConfigPage .htFooter {
                 grid-column: 1 / -1;
                 position: sticky;
@@ -136,7 +139,10 @@
                 }
                 #hanimeTvConfigPage .htHeader,
                 #hanimeTvConfigPage .htContent,
-                #hanimeTvConfigPage .htFooter {
+                #hanimeTvConfigPage .htSourceUrl {
+                margin-left: 2.5em;
+            }
+            #hanimeTvConfigPage .htFooter {
                     padding-left: 1em;
                     padding-right: 1em;
                 }
@@ -154,69 +160,94 @@
         </style>
             <form class="hanimeTvConfigurationForm htShell">
                 <div class="htHeader">
-                    <h2 class="sectionTitle">hanime.tv</h2>
+                    <h2 class="sectionTitle">Adult Media</h2>
                     <span id="htHeaderStatus" class="htChip">Loading…</span>
                 </div>
 
                 <nav class="htNav" aria-label="Settings sections">
                     <button type="button" class="htNavButton" data-section="status">Status</button>
-                    <button type="button" class="htNavButton" data-section="users">Users</button>
-                    <button type="button" class="htNavButton" data-section="library">Library</button>
-                    <button type="button" class="htNavButton" data-section="catalog">Catalog</button>
-                    <button type="button" class="htNavButton" data-section="account">Account</button>
+                    <button type="button" class="htNavButton" data-section="hentai">Hentai</button>
+                    <button type="button" class="htNavButton" data-section="library">Hentai library</button>
+                    <button type="button" class="htNavButton" data-section="account">hanime.tv account</button>
+                    <button type="button" class="htNavButton" data-section="pornhub">Pornhub</button>
+                    <button type="button" class="htNavButton" data-section="access">Streams &amp; access</button>
                     <button type="button" class="htNavButton" data-section="advanced">Advanced</button>
                 </nav>
 
                 <div class="htContent">
                     <section class="htSection" data-section="status">
                         <h3 class="sectionTitle">Status</h3>
-                        <p>Writes hanime.tv's catalog into a shows library: every video becomes an episode of its
-                            series, with hanime.tv's description, genres, studio, release date and images. The library
-                            is for adults: only the users selected under <em>Users</em> see it, nobody else.</p>
+                        <p>Adult media providers as Jellyfin channels or shows libraries. Each provider is for adults: only
+                            the users selected for it see it, nobody else, administrators included.</p>
                         <div id="htStatus" class="fieldDescription">Loading…</div>
-                        <div style="margin-top: 1.5em;">
-                            <button is="emby-button" type="button" class="raised block" id="htTest"><span>Test</span></button>
-                        </div>
-                        <div class="fieldDescription">Downloads the catalog and asks for the streams of the newest video, with the settings as entered here, also before saving them.</div>
-                        <div id="htTestResult" class="fieldDescription"></div>
-                        <div style="margin-top: 1.5em;">
-                            <button is="emby-button" type="button" class="raised block" id="htSyncLibrary"><span>Sync the library now</span></button>
-                        </div>
-                        <div class="fieldDescription">Also runs every 6 hours (scheduled task <em>Sync hanime.tv library</em>) and after saving.</div>
-                        <div id="htSyncLibraryResult" class="fieldDescription"></div>
                     </section>
 
-                    <section class="htSection" data-section="users">
-                        <h3 class="sectionTitle">Users</h3>
-                        <p>Only the selected users see the library and can play its videos, administrators included.</p>
-                        <div id="htUsers" class="htUsers">Loading…</div>
-                        <div class="checkboxContainer checkboxContainer-withDescription">
+                    <section class="htSection" data-section="hentai">
+                        <h3 class="sectionTitle">Hentai</h3>
+                        <p>hanime.tv and Hentai Haven merged into one catalog: series with the same name are one series, and an
+                            episode both sites have comes from hanime.tv.</p>
+                        <div class="selectContainer">
+                            <select is="emby-select" id="hentaiMode" class="htMode" label="Show as">
+                                <option value="Library">Shows library (series and episodes with metadata)</option>
+                                <option value="Channel">Channel (browsed by folders)</option>
+                                <option value="Off">Off</option>
+                            </select>
+                        </div>
+                        <h4>Sources</h4>
+                        <div class="checkboxContainer">
                             <label>
-                                <input is="emby-checkbox" type="checkbox" id="enforceAccess" />
-                                <span>Enforce through the users' library access</span>
+                                <input is="emby-checkbox" type="checkbox" id="hanimeEnabled" />
+                                <span>hanime.tv</span>
                             </label>
-                            <div class="fieldDescription checkboxFieldDescription">
-                                Recommended. The library access of every user's policy (Dashboard → Users → Access) follows
-                                this selection, so Jellyfin itself hides the library and its videos from the others. A user
-                                who had access to all libraries and is not selected keeps access to every other library, now
-                                listed one by one: tick <em>Enable access to all libraries</em> again there and the plugin
-                                takes this library out again within 15 minutes (scheduled task <em>Enforce hanime.tv library
-                                access</em>). Without it, set the users' access to the library yourself.
-                            </div>
                         </div>
-                        <div>
-                            <button is="emby-button" type="button" class="raised block" id="htSync"><span>Apply access now</span></button>
+                        <div class="checkboxContainer">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="hentaiHavenEnabled" />
+                                <span>Hentai Haven</span>
+                            </label>
                         </div>
-                        <div id="htSyncResult" class="fieldDescription"></div>
+                        <div class="inputContainer htSourceUrl">
+                            <input type="url" id="hentaiHavenUrl" is="emby-input" label="Hentai Haven address" />
+                            <div class="fieldDescription">The site's address. Its first full read takes a while: every series' page is read
+                                once, later syncs only read what changed.</div>
+                        </div>
+                        <h4>Users</h4>
+                        <div class="htUsers" data-provider="Hentai">Loading…</div>
+                        <h4>Filters</h4>
+                        <div class="inputContainer">
+                            <input type="text" id="hiddenTags" is="emby-input" label="Hidden genres" />
+                            <div class="fieldDescription">Genres whose videos are left out, separated by commas, e.g. <code>loli, shota, scat</code>.</div>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="hideCensored" />
+                                <span>Leave out censored videos</span>
+                            </label>
+                        </div>
+                        <div class="inputContainer">
+                            <input type="number" id="catalogCacheHours" is="emby-input" label="Catalog refresh (hours)" min="1" max="168" />
+                            <div class="fieldDescription">How long the catalogs are kept before they are read again.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input type="number" id="hentaiMaxItems" is="emby-input" label="Videos per channel folder" min="10" max="2000" />
+                            <div class="fieldDescription">Channel only: the most videos a folder such as <em>Recently uploaded</em> lists.</div>
+                        </div>
+                        <div style="margin-top: 1.5em;">
+                            <button is="emby-button" type="button" class="raised block htTest" data-provider="hentai"><span>Test</span></button>
+                        </div>
+                        <div class="fieldDescription">Reads each enabled source's catalog (for Hentai Haven, its newest series) and asks for the
+                            streams of its newest video, with the settings as entered here, also before saving them.</div>
+                        <div class="fieldDescription htTestResult" data-provider="hentai"></div>
                     </section>
 
                     <section class="htSection" data-section="library">
-                        <h3 class="sectionTitle">Library</h3>
+                        <h3 class="sectionTitle">Hentai library</h3>
+                        <p>In library mode, the plugin writes the catalog into a folder, as a .strm file (the episode's stream link)
+                            and an NFO file (its metadata) per episode, and Jellyfin scans it as a shows library.</p>
                         <div class="inputContainer">
                             <input type="text" id="libraryPath" is="emby-input" label="Folder" />
-                            <div class="fieldDescription">Where the library's files go: a .strm file (the episode's stream link) and an NFO
-                                file (its metadata) per episode. Empty means the folder <code>hanime.tv</code> in Jellyfin's data
-                                directory (<span id="htDefaultFolder"></span>). Use an empty folder: the plugin replaces everything in it.</div>
+                            <div class="fieldDescription">Empty means the folder <code>hanime.tv</code> in Jellyfin's data directory
+                                (<span id="htDefaultFolder"></span>). Use an empty folder: the plugin replaces everything in it.</div>
                         </div>
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label>
@@ -232,38 +263,16 @@
                         <div class="inputContainer">
                             <input type="text" id="libraryName" is="emby-input" label="Library name" />
                         </div>
-                        <div class="inputContainer">
-                            <input type="url" id="streamBaseUrl" is="emby-input" label="Jellyfin address for the stream links" />
-                            <div class="fieldDescription">The address in the stream links of the .strm files, e.g.
-                                <code>https://jellyfin.example.com</code>. Jellyfin's ffmpeg and every ffmpeg worker start streams
-                                from it, and browsers play these links themselves, so use the address your clients open Jellyfin
-                                with, as long as all ffmpeg workers reach it too. In Kubernetes, that is the ingress address:
-                                Jellyfin's own guess is the pod's IP, which changes and is not reachable from outside the cluster.
-                                Filled in with this page's address when empty; save to use it.</div>
+                        <div style="margin-top: 1.5em;">
+                            <button is="emby-button" type="button" class="raised block" id="htSyncLibrary"><span>Sync the library now</span></button>
                         </div>
-                    </section>
-
-                    <section class="htSection" data-section="catalog">
-                        <h3 class="sectionTitle">Catalog</h3>
-                        <div class="inputContainer">
-                            <input type="text" id="hiddenTags" is="emby-input" label="Hidden genres" />
-                            <div class="fieldDescription">hanime.tv tags whose videos are left out of the library, separated by commas, e.g. <code>loli, shota, scat</code>.</div>
-                        </div>
-                        <div class="checkboxContainer">
-                            <label>
-                                <input is="emby-checkbox" type="checkbox" id="hideCensored" />
-                                <span>Leave out censored videos</span>
-                            </label>
-                        </div>
-                        <div class="inputContainer">
-                            <input type="number" id="catalogCacheHours" is="emby-input" label="Catalog refresh (hours)" min="1" max="168" />
-                            <div class="fieldDescription">How long the catalog is kept before it is downloaded again.</div>
-                        </div>
+                        <div class="fieldDescription">Also runs every 6 hours (scheduled task <em>Sync hentai library</em>) and after saving.</div>
+                        <div id="htSyncLibraryResult" class="fieldDescription"></div>
                     </section>
 
                     <section class="htSection" data-section="account">
                         <h3 class="sectionTitle">hanime.tv account</h3>
-                        <p>Optional. Without an account, videos play in up to 720p; a premium account adds 1080p.</p>
+                        <p>Optional. Without an account, hanime.tv's videos play in up to 720p; a premium account adds 1080p.</p>
                         <div class="inputContainer">
                             <input type="email" id="email" is="emby-input" label="Email" autocomplete="off" />
                         </div>
@@ -273,22 +282,90 @@
                         </div>
                     </section>
 
+                    <section class="htSection" data-section="pornhub">
+                        <h3 class="sectionTitle">Pornhub</h3>
+                        <p>A channel with Pornhub's featured, newest, most viewed and top rated videos, its categories and your
+                            searches. Pornhub blocks some countries and may refuse servers it takes for bots: use <em>Test</em>.</p>
+                        <div class="selectContainer">
+                            <select is="emby-select" id="pornhubMode" class="htMode" label="Show as">
+                                <option value="Channel">Channel</option>
+                                <option value="Off">Off</option>
+                            </select>
+                        </div>
+                        <h4>Users</h4>
+                        <div class="htUsers" data-provider="Pornhub">Loading…</div>
+                        <div class="inputContainer">
+                            <input type="text" id="pornhubSearches" is="emby-input" label="Searches" />
+                            <div class="fieldDescription">Searches shown as folders of their own, e.g. performers, separated by commas.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input type="text" id="pornhubHiddenCategories" is="emby-input" label="Hidden categories" />
+                            <div class="fieldDescription">Categories whose videos are left out, separated by commas.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input type="number" id="pornhubMaxItems" is="emby-input" label="Videos per folder" min="10" max="500" />
+                        </div>
+                        <div style="margin-top: 1.5em;">
+                            <button is="emby-button" type="button" class="raised block htTest" data-provider="pornhub"><span>Test</span></button>
+                        </div>
+                        <div class="fieldDescription">Reads the newest videos and asks for the streams of the first, with the settings as entered here.</div>
+                        <div class="fieldDescription htTestResult" data-provider="pornhub"></div>
+                    </section>
+
+                    <section class="htSection" data-section="access">
+                        <h3 class="sectionTitle">Streams &amp; access</h3>
+                        <div class="inputContainer">
+                            <input type="url" id="streamBaseUrl" is="emby-input" label="Jellyfin address for the stream links" />
+                            <div class="fieldDescription">The address in the stream links of the .strm files and channel videos, e.g.
+                                <code>https://jellyfin.example.com</code>. Jellyfin's ffmpeg and every ffmpeg worker start streams
+                                from it, and browsers play these links themselves, so use the address your clients open Jellyfin
+                                with, as long as all ffmpeg workers reach it too. In Kubernetes, that is the ingress address:
+                                Jellyfin's own guess is the pod's IP, which changes and is not reachable from outside the cluster.
+                                Filled in with this page's address when empty; save to use it.</div>
+                        </div>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="enforceAccess" />
+                                <span>Enforce through the users' channel and library access</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                Recommended. The channel and library access of every user's policy (Dashboard → Users → Access)
+                                follows the providers' user selections, so Jellyfin itself hides their channels, libraries and
+                                videos from the others. A user who had access to all channels or libraries and is not selected
+                                keeps access to every other one, now listed one by one: tick <em>Enable access to all</em> again
+                                there and the plugin takes the provider out again within 15 minutes (scheduled task
+                                <em>Enforce Adult Media access</em>). Without it, set the users' access yourself.
+                            </div>
+                        </div>
+                        <div>
+                            <button is="emby-button" type="button" class="raised block" id="htSync"><span>Apply access now</span></button>
+                        </div>
+                        <div id="htSyncResult" class="fieldDescription"></div>
+                    </section>
+
                     <section class="htSection" data-section="advanced">
                         <h3 class="sectionTitle">Advanced</h3>
-                        <p>hanime.tv refuses many datacenter and VPN addresses. If the test fails with HTTP 403, point
+                        <p>hanime.tv refuses many datacenter and VPN addresses. If its test fails with HTTP 403, point
                             these at a relay that forwards the requests and their headers unchanged.</p>
                         <div class="inputContainer">
-                            <input type="url" id="searchUrl" is="emby-input" label="Catalog URL" />
+                            <input type="url" id="searchUrl" is="emby-input" label="hanime.tv catalog URL" />
                         </div>
                         <div class="inputContainer">
-                            <input type="url" id="handshakeUrl" is="emby-input" label="Stream handshake URL" />
+                            <input type="url" id="handshakeUrl" is="emby-input" label="hanime.tv stream handshake URL" />
                         </div>
                         <div class="inputContainer">
-                            <input type="url" id="loginUrl" is="emby-input" label="Login URL" />
+                            <input type="url" id="loginUrl" is="emby-input" label="hanime.tv login URL" />
                         </div>
                         <div class="inputContainer">
-                            <input type="url" id="streamHost" is="emby-input" label="Stream host" />
+                            <input type="url" id="streamHost" is="emby-input" label="hanime.tv stream host" />
                             <div class="fieldDescription">Relative stream paths from the handshake are resolved against this host.</div>
+                        </div>
+                        <div class="inputContainer">
+                            <input type="url" id="pornhubApiUrl" is="emby-input" label="Pornhub API URL" />
+                        </div>
+                        <div class="inputContainer">
+                            <input type="url" id="pornhubSiteUrl" is="emby-input" label="Pornhub site URL" />
+                            <div class="fieldDescription">Where the video pages, with their streams, are read from.</div>
                         </div>
                         <div>
                             <button is="emby-button" type="button" class="raised button-cancel block" id="htDefaults"><span>Restore the defaults</span></button>
@@ -310,13 +387,20 @@
                 const page = document.querySelector('#hanimeTvConfigPage');
                 const $ = (selector) => page.querySelector(selector);
                 // Accept both PascalCase and camelCase JSON
-                const get = (obj, name) => obj[name] !== undefined ? obj[name] : obj[name.charAt(0).toLowerCase() + name.slice(1)];
+                const get = (obj, name) => obj == null ? undefined : obj[name] !== undefined ? obj[name] : obj[name.charAt(0).toLowerCase() + name.slice(1)];
+                const modes = ['Off', 'Channel', 'Library'];
+                // Enums arrive as names or numbers
+                const modeName = value => typeof value === 'number' ? modes[value] : (value || 'Off');
                 const defaults = {
                     SearchUrl: 'https://guest.freeanimehentai.net/api/v11/search_hvs',
                     HandshakeUrl: 'https://auth.hanime.tv/api/v11/handshake',
                     LoginUrl: 'https://www.universal-cdn.com/rapi/v7/sessions',
                     StreamHost: 'https://hanime.tv',
+                    HentaiHavenUrl: 'https://hentaihaven.co',
+                    PornhubApiUrl: 'https://www.pornhub.com/webmasters',
+                    PornhubSiteUrl: 'https://www.pornhub.com',
                 };
+                const providers = ['Hentai', 'Pornhub'];
 
                 function escapeHtml(text) {
                     const div = document.createElement('div');
@@ -333,18 +417,24 @@
                     return ApiClient.ajax(request);
                 }
 
-                // One line per entry; Jellyfin's styles collapse line breaks in text
+                // One line per entry; Jellyfin's styles collapse line breaks in text, and HTML
+                // leading spaces, which indent a provider's lines
                 function setLines(element, lines) {
-                    element.innerHTML = lines.map(escapeHtml).join('<br>');
+                    element.innerHTML = lines.map(line => escapeHtml(line).replace(/^ +/, spaces => '&nbsp;'.repeat(spaces.length * 2))).join('<br>');
                 }
 
                 function formatTime(value) {
                     return value ? new Date(value).toLocaleString() : 'never';
                 }
 
+                const list = value => value.split(',').map(t => t.trim()).filter(t => t);
+                const normalizeId = id => id.replace(/-/g, '').toLowerCase();
+                const toGuid = id => id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+
                 let currentSection = 'status';
-                // Selected users as loaded or ticked, kept while the list is redrawn
-                let selected = new Set();
+                // Selected users per provider as loaded or ticked, kept while the lists are redrawn
+                let selected = { Hentai: new Set(), Pornhub: new Set() };
+                let lastStatus = {};
 
                 function showSection(name) {
                     currentSection = name;
@@ -368,56 +458,75 @@
                     }
                 }
 
+                function providerMode(provider) {
+                    return $(provider === 'Hentai' ? '#hentaiMode' : '#pornhubMode').value;
+                }
+
                 function renderUsers(users) {
-                    const box = $('#htUsers');
-                    if (!users.length) {
-                        box.textContent = 'No users.';
-                        return;
-                    }
-                    box.innerHTML = users.map(user => {
-                        const id = get(user, 'Id').replace(/-/g, '').toLowerCase();
-                        const grants = get(user, 'PolicyGrantsAccess');
-                        const access = grants
-                            ? '<span data-state="' + (selected.has(id) ? 'ok' : 'warn') + '">Jellyfin grants access</span>'
-                            : '<span data-state="' + (selected.has(id) ? 'warn' : '') + '">No access in Jellyfin</span>';
-                        return '<div class="htUser">'
-                            + '<div class="checkboxContainer"><label>'
-                            + '<input is="emby-checkbox" type="checkbox" class="htUserCheck" data-id="' + escapeHtml(id) + '"' + (selected.has(id) ? ' checked' : '') + ' />'
-                            + '<span>' + escapeHtml(get(user, 'Name')) + (get(user, 'IsAdministrator') ? ' <span class="htChip">Administrator</span>' : '') + '</span>'
-                            + '</label></div>'
-                            + '<span class="htUserAccess">' + access + '</span>'
-                            + '</div>';
-                    }).join('');
-                    for (const check of box.querySelectorAll('.htUserCheck')) {
-                        check.addEventListener('change', () => {
-                            const id = check.getAttribute('data-id');
-                            if (check.checked) {
-                                selected.add(id);
+                    for (const provider of providers) {
+                        const box = page.querySelector('.htUsers[data-provider="' + provider + '"]');
+                        if (!users.length) {
+                            box.textContent = 'No users.';
+                            continue;
+                        }
+                        const mode = providerMode(provider);
+                        const kind = mode === 'Library' ? 'library' : 'channel';
+                        box.innerHTML = users.map(user => {
+                            const id = normalizeId(get(user, 'Id'));
+                            const surface = (get(user, 'Access') || []).find(a => get(a, 'Name') === provider && get(a, 'IsChannel') === (mode !== 'Library'));
+                            const isSelected = selected[provider].has(id);
+                            let access = '';
+                            if (mode === 'Off') {
+                                access = '<span>Off</span>';
+                            } else if (!surface) {
+                                access = '<span>No ' + kind + ' yet</span>';
+                            } else if (get(surface, 'Granted')) {
+                                access = '<span data-state="' + (isSelected ? 'ok' : 'warn') + '">Jellyfin grants the ' + kind + '</span>';
                             } else {
-                                selected.delete(id);
+                                access = '<span data-state="' + (isSelected ? 'warn' : '') + '">No ' + kind + ' access in Jellyfin</span>';
                             }
-                            updateHeader(lastStatus);
-                        });
+                            return '<div class="htUser">'
+                                + '<div class="checkboxContainer"><label>'
+                                + '<input is="emby-checkbox" type="checkbox" class="htUserCheck" data-id="' + escapeHtml(id) + '"' + (isSelected ? ' checked' : '') + ' />'
+                                + '<span>' + escapeHtml(get(user, 'Name')) + (get(user, 'IsAdministrator') ? ' <span class="htChip">Administrator</span>' : '') + '</span>'
+                                + '</label></div>'
+                                + '<span class="htUserAccess">' + access + '</span>'
+                                + '</div>';
+                        }).join('');
+                        for (const check of box.querySelectorAll('.htUserCheck')) {
+                            check.addEventListener('change', () => {
+                                const id = check.getAttribute('data-id');
+                                if (check.checked) {
+                                    selected[provider].add(id);
+                                } else {
+                                    selected[provider].delete(id);
+                                }
+                                updateHeader(lastStatus);
+                            });
+                        }
                     }
                 }
 
-                let lastStatus = {};
-
                 function updateHeader(status) {
                     const chip = $('#htHeaderStatus');
+                    const active = providers.filter(p => providerMode(p) !== 'Off');
+                    const sources = get(get(status, 'Hentai'), 'Sources') || [];
                     let text;
                     let state;
-                    if (get(status, 'CatalogError')) {
-                        text = 'Catalog unavailable';
+                    if (sources.some(s => get(s, 'Enabled') && get(s, 'Error')) && providerMode('Hentai') !== 'Off') {
+                        text = 'A hentai source is unavailable';
                         state = 'error';
                     } else if (get(status, 'StreamBaseUrlDetected')) {
                         text = 'Set the stream address';
                         state = 'warn';
-                    } else if (selected.size === 0) {
-                        text = 'No users selected';
+                    } else if (!active.length) {
+                        text = 'All providers off';
+                        state = 'warn';
+                    } else if (active.some(p => selected[p].size === 0)) {
+                        text = 'No users selected for ' + active.filter(p => selected[p].size === 0).join(', ');
                         state = 'warn';
                     } else {
-                        text = selected.size === 1 ? '1 user' : selected.size + ' users';
+                        text = active.map(p => p + ': ' + selected[p].size + (selected[p].size === 1 ? ' user' : ' users')).join(' · ');
                         state = 'ok';
                     }
                     chip.textContent = text;
@@ -428,37 +537,47 @@
                     return api('GET', 'HanimeTV/Status').then(status => {
                         lastStatus = status;
                         const lines = [];
-                        const report = get(status, 'LastReport');
-                        const libraryId = get(status, 'LibraryId');
-                        if (!report) {
-                            lines.push('Library: not synced yet (starts shortly after Jellyfin starts and after saving)');
-                        } else if (get(report, 'Error')) {
-                            lines.push('✘ Last sync failed (' + formatTime(get(report, 'Time')) + '): ' + get(report, 'Error'));
-                        } else {
-                            lines.push('Library: ' + get(report, 'Series') + ' series, ' + get(report, 'Episodes') + ' episodes, synced ' + formatTime(get(report, 'Time')));
+                        const hentai = get(status, 'Hentai') || {};
+                        const hentaiMode = modeName(get(hentai, 'Mode'));
+                        lines.push('Hentai: ' + (hentaiMode === 'Off' ? 'off' : hentaiMode === 'Library' ? 'shows library' : 'channel'));
+                        for (const source of get(hentai, 'Sources') || []) {
+                            if (!get(source, 'Enabled')) {
+                                lines.push('  ' + get(source, 'Name') + ': not used');
+                                continue;
+                            }
+                            const count = get(source, 'Count');
+                            lines.push('  ' + get(source, 'Name') + ': ' + (count != null ? count + ' videos, read ' + formatTime(get(source, 'Time')) : 'not read yet'));
+                            if (get(source, 'Error')) {
+                                lines.push('  ✘ ' + get(source, 'Name') + ': last read failed: ' + get(source, 'Error'));
+                            }
                         }
-                        lines.push(libraryId
-                            ? 'Jellyfin library: found for ' + get(status, 'LibraryFolder')
-                            : '✘ No Jellyfin library for ' + get(status, 'LibraryFolder') + ' yet: tick "Create the Jellyfin library" or add it under Dashboard → Libraries');
+                        if (hentaiMode === 'Library') {
+                            const report = get(hentai, 'LastReport');
+                            if (!report) {
+                                lines.push('  Library: not synced yet (starts shortly after Jellyfin starts and after saving)');
+                            } else if (get(report, 'Error')) {
+                                lines.push('  ✘ Last sync failed (' + formatTime(get(report, 'Time')) + '): ' + get(report, 'Error'));
+                            } else if (!get(report, 'Inactive')) {
+                                lines.push('  Library: ' + get(report, 'Series') + ' series, ' + get(report, 'Episodes') + ' episodes, synced ' + formatTime(get(report, 'Time')));
+                            }
+                            lines.push(get(hentai, 'LibraryId')
+                                ? '  Jellyfin library: found for ' + get(hentai, 'LibraryFolder')
+                                : '  ✘ No Jellyfin library for ' + get(hentai, 'LibraryFolder') + ' yet: tick "Create the Jellyfin library" or add it under Dashboard → Libraries');
+                        }
+                        lines.push('  hanime.tv account: ' + (get(hentai, 'AccountStatus') || 'none or not used yet (guest, up to 720p)'));
+                        const pornhubMode = modeName(get(get(status, 'Pornhub'), 'Mode'));
+                        lines.push('Pornhub: ' + (pornhubMode === 'Off' ? 'off' : 'channel'));
                         lines.push(get(status, 'StreamBaseUrlDetected')
-                            ? '✘ Stream links: ' + get(status, 'StreamBaseUrl') + '/HanimeTV/Stream/…, guessed by Jellyfin: set the address under Library and save'
-                            : 'Stream links: ' + get(status, 'StreamBaseUrl') + '/HanimeTV/Stream/…');
-                        const count = get(status, 'CatalogCount');
-                        if (count != null) {
-                            lines.push('Catalog: ' + count + ' videos, downloaded ' + formatTime(get(status, 'CatalogTime')));
-                        }
-                        if (get(status, 'CatalogError')) {
-                            lines.push('✘ Last catalog download failed: ' + get(status, 'CatalogError'));
-                        }
-                        lines.push('Account: ' + (get(status, 'AccountStatus') || 'none or not used yet (guest, up to 720p)'));
+                            ? '✘ Stream links: ' + get(status, 'StreamBaseUrl') + '/HanimeTV/…, guessed by Jellyfin: set the address under Streams & access and save'
+                            : 'Stream links: ' + get(status, 'StreamBaseUrl') + '/HanimeTV/…');
                         if (get(status, 'EnforceAccess')) {
                             const changed = get(status, 'LastAccessChanged') || [];
-                            lines.push('Library access last enforced: ' + formatTime(get(status, 'LastAccessSync'))
+                            lines.push('Access last enforced: ' + formatTime(get(status, 'LastAccessSync'))
                                 + (changed.length ? ' (changed: ' + changed.join(', ') + ')' : ''));
                         } else {
-                            lines.push('Library access: not enforced through the users\' policies');
+                            lines.push('Access: not enforced through the users\' policies');
                         }
-                        $('#htDefaultFolder').textContent = get(status, 'LibraryFolder');
+                        $('#htDefaultFolder').textContent = get(hentai, 'LibraryFolder');
                         setLines($('#htStatus'), lines);
                         renderUsers(get(status, 'Users') || []);
                         updateHeader(status);
@@ -470,67 +589,104 @@
                 function loadConfiguration() {
                     Dashboard.showLoadingMsg();
                     ApiClient.getPluginConfiguration(pluginId).then(config => {
-                        selected = new Set((config.AllowedUsers || []).map(id => id.replace(/-/g, '').toLowerCase()));
+                        const hentai = config.Hentai || {};
+                        const pornhub = config.Pornhub || {};
+                        selected = {
+                            Hentai: new Set((hentai.AllowedUsers || []).map(normalizeId)),
+                            Pornhub: new Set((pornhub.AllowedUsers || []).map(normalizeId)),
+                        };
+                        $('#hentaiMode').value = modeName(hentai.Mode);
+                        $('#hanimeEnabled').checked = hentai.HanimeEnabled !== false;
+                        $('#hentaiHavenEnabled').checked = hentai.HentaiHavenEnabled !== false;
+                        $('#hentaiHavenUrl').value = hentai.HentaiHavenUrl || defaults.HentaiHavenUrl;
+                        $('#hiddenTags').value = (hentai.HiddenTags || []).join(', ');
+                        $('#hideCensored').checked = !!hentai.HideCensored;
+                        $('#catalogCacheHours').value = hentai.CatalogCacheHours || 6;
+                        $('#hentaiMaxItems').value = hentai.MaxItemsPerFolder || 200;
+                        $('#libraryPath').value = hentai.LibraryPath || '';
+                        $('#createLibrary').checked = hentai.CreateLibrary !== false;
+                        $('#libraryName').value = hentai.LibraryName || 'Hentai';
+                        $('#email').value = hentai.Email || '';
+                        $('#password').value = hentai.Password || '';
+                        $('#searchUrl').value = hentai.SearchUrl || defaults.SearchUrl;
+                        $('#handshakeUrl').value = hentai.HandshakeUrl || defaults.HandshakeUrl;
+                        $('#loginUrl').value = hentai.LoginUrl || defaults.LoginUrl;
+                        $('#streamHost').value = hentai.StreamHost || defaults.StreamHost;
+                        $('#pornhubMode').value = modeName(pornhub.Mode) === 'Channel' ? 'Channel' : 'Off';
+                        $('#pornhubSearches').value = (pornhub.Searches || []).join(', ');
+                        $('#pornhubHiddenCategories').value = (pornhub.HiddenCategories || []).join(', ');
+                        $('#pornhubMaxItems').value = pornhub.MaxItemsPerFolder || 200;
+                        $('#pornhubApiUrl').value = pornhub.ApiUrl || defaults.PornhubApiUrl;
+                        $('#pornhubSiteUrl').value = pornhub.SiteUrl || defaults.PornhubSiteUrl;
                         $('#enforceAccess').checked = config.EnforceAccess;
-                        $('#hiddenTags').value = (config.HiddenTags || []).join(', ');
-                        $('#hideCensored').checked = config.HideCensored;
-                        $('#libraryPath').value = config.LibraryPath || '';
-                        $('#createLibrary').checked = config.CreateLibrary;
-                        $('#libraryName').value = config.LibraryName || 'hanime.tv';
                         // This page's address, which the browser reached Jellyfin with
                         $('#streamBaseUrl').value = config.StreamBaseUrl || ApiClient.serverAddress();
-                        $('#catalogCacheHours').value = config.CatalogCacheHours || 6;
-                        $('#email').value = config.Email || '';
-                        $('#password').value = config.Password || '';
-                        $('#searchUrl').value = config.SearchUrl || defaults.SearchUrl;
-                        $('#handshakeUrl').value = config.HandshakeUrl || defaults.HandshakeUrl;
-                        $('#loginUrl').value = config.LoginUrl || defaults.LoginUrl;
-                        $('#streamHost').value = config.StreamHost || defaults.StreamHost;
                         showSection(currentSection);
                         // The address filled in from this page counts only once saved
-                        setFooterMessage(config.StreamBaseUrl ? '' : 'Unsaved changes: the stream address under Library', config.StreamBaseUrl ? '' : 'dirty');
+                        setFooterMessage(config.StreamBaseUrl ? '' : 'Unsaved changes: the stream address under Streams & access', config.StreamBaseUrl ? '' : 'dirty');
                         return loadStatus();
                     }).finally(() => Dashboard.hideLoadingMsg());
                 }
 
                 // The form's values on top of the saved settings
                 function collectConfiguration(config) {
-                    const toGuid = id => id.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
-                    config.AllowedUsers = Array.from(selected).map(toGuid);
+                    const hentai = config.Hentai = config.Hentai || {};
+                    const pornhub = config.Pornhub = config.Pornhub || {};
+                    hentai.Mode = $('#hentaiMode').value;
+                    hentai.AllowedUsers = Array.from(selected.Hentai).map(toGuid);
+                    hentai.HanimeEnabled = $('#hanimeEnabled').checked;
+                    hentai.HentaiHavenEnabled = $('#hentaiHavenEnabled').checked;
+                    hentai.HentaiHavenUrl = $('#hentaiHavenUrl').value.trim().replace(/\/+$/, '') || defaults.HentaiHavenUrl;
+                    hentai.HiddenTags = list($('#hiddenTags').value);
+                    hentai.HideCensored = $('#hideCensored').checked;
+                    hentai.CatalogCacheHours = parseInt($('#catalogCacheHours').value, 10) || 6;
+                    hentai.MaxItemsPerFolder = parseInt($('#hentaiMaxItems').value, 10) || 200;
+                    hentai.LibraryPath = $('#libraryPath').value.trim();
+                    hentai.CreateLibrary = $('#createLibrary').checked;
+                    hentai.LibraryName = $('#libraryName').value.trim() || 'Hentai';
+                    hentai.Email = $('#email').value.trim();
+                    hentai.Password = $('#password').value;
+                    hentai.SearchUrl = $('#searchUrl').value.trim() || defaults.SearchUrl;
+                    hentai.HandshakeUrl = $('#handshakeUrl').value.trim() || defaults.HandshakeUrl;
+                    hentai.LoginUrl = $('#loginUrl').value.trim() || defaults.LoginUrl;
+                    hentai.StreamHost = $('#streamHost').value.trim() || defaults.StreamHost;
+                    pornhub.Mode = $('#pornhubMode').value;
+                    pornhub.AllowedUsers = Array.from(selected.Pornhub).map(toGuid);
+                    pornhub.Searches = list($('#pornhubSearches').value);
+                    pornhub.HiddenCategories = list($('#pornhubHiddenCategories').value);
+                    pornhub.MaxItemsPerFolder = parseInt($('#pornhubMaxItems').value, 10) || 200;
+                    pornhub.ApiUrl = $('#pornhubApiUrl').value.trim() || defaults.PornhubApiUrl;
+                    pornhub.SiteUrl = $('#pornhubSiteUrl').value.trim() || defaults.PornhubSiteUrl;
                     config.EnforceAccess = $('#enforceAccess').checked;
-                    config.HiddenTags = $('#hiddenTags').value.split(',').map(t => t.trim()).filter(t => t);
-                    config.HideCensored = $('#hideCensored').checked;
-                    config.LibraryPath = $('#libraryPath').value.trim();
-                    config.CreateLibrary = $('#createLibrary').checked;
-                    config.LibraryName = $('#libraryName').value.trim() || 'hanime.tv';
                     config.StreamBaseUrl = $('#streamBaseUrl').value.trim().replace(/\/+$/, '');
-                    config.CatalogCacheHours = parseInt($('#catalogCacheHours').value, 10) || 6;
-                    config.Email = $('#email').value.trim();
-                    config.Password = $('#password').value;
-                    config.SearchUrl = $('#searchUrl').value.trim() || defaults.SearchUrl;
-                    config.HandshakeUrl = $('#handshakeUrl').value.trim() || defaults.HandshakeUrl;
-                    config.LoginUrl = $('#loginUrl').value.trim() || defaults.LoginUrl;
-                    config.StreamHost = $('#streamHost').value.trim() || defaults.StreamHost;
                     return config;
                 }
 
-                function renderTestResult(result) {
+                function renderTestResult(element, result) {
                     const lines = [];
-                    if (get(result, 'CatalogError')) {
-                        lines.push('✘ Catalog: ' + get(result, 'CatalogError'));
-                    } else {
-                        lines.push('✔ Catalog: ' + get(result, 'CatalogCount') + ' videos'
-                            + (get(result, 'SeriesCount') != null ? ', ' + get(result, 'SeriesCount') + ' series with ' + get(result, 'EpisodeCount') + ' episodes after the filters' : ''));
+                    const sources = get(result, 'Sources') || [];
+                    if (!sources.length) {
+                        lines.push('✘ No source is enabled.');
                     }
-                    if (get(result, 'TestedVideo')) {
-                        lines.push(get(result, 'StreamError')
-                            ? '✘ Streams of "' + get(result, 'TestedVideo') + '": ' + get(result, 'StreamError')
-                            : '✔ Streams of "' + get(result, 'TestedVideo') + '": ' + (get(result, 'Streams') || []).join(', '));
+                    for (const source of sources) {
+                        const name = get(source, 'Name');
+                        if (get(source, 'CatalogError')) {
+                            lines.push('✘ ' + name + ': ' + get(source, 'CatalogError'));
+                        } else {
+                            lines.push('✔ ' + name + ': ' + get(source, 'VideoCount') + ' videos'
+                                + (get(source, 'SeriesCount') != null ? ', ' + get(source, 'SeriesCount') + ' series after the filters' : '')
+                                + (get(source, 'TestedSeries') ? ' in the newest series, "' + get(source, 'TestedSeries') + '"' : ''));
+                        }
+                        if (get(source, 'TestedVideo')) {
+                            lines.push(get(source, 'StreamError')
+                                ? '✘ ' + name + ': streams of "' + get(source, 'TestedVideo') + '": ' + get(source, 'StreamError')
+                                : '✔ ' + name + ': streams of "' + get(source, 'TestedVideo') + '": ' + (get(source, 'Streams') || []).join(', '));
+                        }
+                        if (get(source, 'AccountStatus')) {
+                            lines.push((get(source, 'AccountStatus').indexOf('failed') >= 0 ? '✘ ' : '✔ ') + name + ' account: ' + get(source, 'AccountStatus'));
+                        }
                     }
-                    if (get(result, 'AccountStatus')) {
-                        lines.push((get(result, 'AccountStatus').indexOf('failed') >= 0 ? '✘ ' : '✔ ') + 'Account: ' + get(result, 'AccountStatus'));
-                    }
-                    setLines($('#htTestResult'), lines);
+                    setLines(element, lines);
                 }
 
                 page.addEventListener('pageshow', loadConfiguration);
@@ -561,22 +717,31 @@
                 const markDirty = () => setFooterMessage('Unsaved changes', 'dirty');
                 form.addEventListener('input', markDirty);
                 form.addEventListener('change', markDirty);
+                for (const select of page.querySelectorAll('select.htMode')) {
+                    select.addEventListener('change', () => {
+                        renderUsers(get(lastStatus, 'Users') || []);
+                        updateHeader(lastStatus);
+                    });
+                }
 
-                $('#htTest').addEventListener('click', function () {
-                    const button = this;
-                    $('#htTestResult').textContent = 'Downloading the catalog and asking for streams…';
-                    button.disabled = true;
-                    ApiClient.getPluginConfiguration(pluginId)
-                        .then(config => api('POST', 'HanimeTV/Test', collectConfiguration(config)))
-                        .then(renderTestResult)
-                        .catch(() => { $('#htTestResult').textContent = '✘ The test could not be run, see the server log.'; })
-                        .finally(() => { button.disabled = false; });
-                });
+                for (const button of page.querySelectorAll('.htTest')) {
+                    button.addEventListener('click', function () {
+                        const provider = button.getAttribute('data-provider');
+                        const result = page.querySelector('.htTestResult[data-provider="' + provider + '"]');
+                        result.textContent = 'Reading the catalog and asking for streams…';
+                        button.disabled = true;
+                        ApiClient.getPluginConfiguration(pluginId)
+                            .then(config => api('POST', 'HanimeTV/Test?provider=' + provider, collectConfiguration(config)))
+                            .then(response => renderTestResult(result, response))
+                            .catch(() => { result.textContent = '✘ The test could not be run, see the server log.'; })
+                            .finally(() => { button.disabled = false; });
+                    });
+                }
 
                 $('#htSync').addEventListener('click', function () {
                     const button = this;
                     if ($('#htFooterMessage').getAttribute('data-state') === 'dirty') {
-                        $('#htSyncResult').textContent = 'Save first: access is applied for the saved selection.';
+                        $('#htSyncResult').textContent = 'Save first: access is applied for the saved selections.';
                         return;
                     }
                     button.disabled = true;
@@ -585,7 +750,7 @@
                             const changed = get(result, 'Changed') || [];
                             $('#htSyncResult').textContent = changed.length
                                 ? 'Changed the access of ' + changed.join(', ') + '.'
-                                : 'All users\' access already matches the selection.';
+                                : 'All users\' access already matches the selections.';
                             return loadStatus();
                         })
                         .catch(() => { $('#htSyncResult').textContent = 'Could not apply the access, see the server log.'; })
@@ -599,15 +764,17 @@
                         return;
                     }
                     button.disabled = true;
-                    $('#htSyncLibraryResult').textContent = 'Syncing…';
+                    $('#htSyncLibraryResult').textContent = 'Syncing… (the first read of Hentai Haven takes a few minutes)';
                     api('POST', 'HanimeTV/Sync')
                         .then(report => {
                             const files = get(report, 'Files');
                             $('#htSyncLibraryResult').textContent = get(report, 'Error')
                                 ? '✘ ' + get(report, 'Error')
-                                : '✔ ' + get(report, 'Series') + ' series, ' + get(report, 'Episodes') + ' episodes; '
-                                    + get(files, 'Written') + ' files written, ' + get(files, 'Deleted') + ' episodes removed'
-                                    + (get(files, 'Written') || get(files, 'Deleted') ? '. Jellyfin is scanning the library.' : '.');
+                                : get(report, 'Inactive')
+                                    ? 'Hentai is not in library mode: nothing was written.'
+                                    : '✔ ' + get(report, 'Series') + ' series, ' + get(report, 'Episodes') + ' episodes; '
+                                        + get(files, 'Written') + ' files written, ' + get(files, 'Deleted') + ' episodes removed'
+                                        + (get(files, 'Written') || get(files, 'Deleted') ? '. Jellyfin is scanning the library.' : '.');
                             return loadStatus();
                         })
                         .catch(() => { $('#htSyncLibraryResult').textContent = '✘ The sync could not be run, see the server log.'; })
@@ -619,6 +786,8 @@
                     $('#handshakeUrl').value = defaults.HandshakeUrl;
                     $('#loginUrl').value = defaults.LoginUrl;
                     $('#streamHost').value = defaults.StreamHost;
+                    $('#pornhubApiUrl').value = defaults.PornhubApiUrl;
+                    $('#pornhubSiteUrl').value = defaults.PornhubSiteUrl;
                     markDirty();
                 });
             })();

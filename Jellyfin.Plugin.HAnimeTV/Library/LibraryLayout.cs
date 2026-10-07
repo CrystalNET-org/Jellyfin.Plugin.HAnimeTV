@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Xml.Linq;
 using Jellyfin.Plugin.HAnimeTV.Configuration;
-using Jellyfin.Plugin.HAnimeTV.Hanime;
+using Jellyfin.Plugin.HAnimeTV.Hentai;
 
 namespace Jellyfin.Plugin.HAnimeTV.Library
 {
@@ -14,8 +14,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
     /// <summary>
     /// The library's files, in the layout Jellyfin's shows libraries expect:
     /// <c>Series/Season 01/Series S01E02.strm</c> with an NFO file next to every episode and a
-    /// tvshow.nfo per series. The .strm files point at the plugin's stream endpoint; the NFO
-    /// files carry hanime.tv's metadata and image URLs, which Jellyfin reads on its scan.
+    /// tvshow.nfo per series. The .strm files point at the plugin's stream endpoints; the NFO
+    /// files carry the sources' metadata and image URLs, which Jellyfin reads on its scan.
     /// </summary>
     public static class LibraryLayout
     {
@@ -24,17 +24,15 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
         /// </summary>
         public const string AdultRating = "XXX";
 
-        public const string ProviderName = "hanime";
-
         private const int MaxNameLength = 120;
 
         /// <summary>
         /// Gets the files for the videos the settings let through.
         /// </summary>
-        /// <param name="catalog">hanime.tv's catalog.</param>
+        /// <param name="catalog">The merged catalog.</param>
         /// <param name="config">The settings, for the filters.</param>
-        /// <param name="streamUrl">Gives a video's stream link from its slug.</param>
-        public static IReadOnlyList<LibraryFile> Build(IReadOnlyList<HanimeVideo> catalog, PluginConfiguration config, Func<string, string> streamUrl)
+        /// <param name="streamUrl">Gives a video's stream link.</param>
+        public static IReadOnlyList<LibraryFile> Build(IReadOnlyList<HentaiVideo> catalog, HentaiSettings config, Func<HentaiVideo, string> streamUrl)
         {
             var files = new List<LibraryFile>();
             var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -51,7 +49,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
                 foreach (var (episode, number) in series.Episodes)
                 {
                     var name = Path.Combine(folder, "Season 01", string.Create(CultureInfo.InvariantCulture, $"{folder} S01E{number:00}"));
-                    files.Add(new LibraryFile(name + ".strm", streamUrl(episode.Slug) + "\n"));
+                    files.Add(new LibraryFile(name + ".strm", streamUrl(episode) + "\n"));
                     files.Add(new LibraryFile(name + ".nfo", EpisodeNfo(series, episode, number)));
                 }
             }
@@ -62,7 +60,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
         /// <summary>
         /// The videos the settings let through.
         /// </summary>
-        public static List<HanimeVideo> Visible(IReadOnlyList<HanimeVideo> catalog, PluginConfiguration config)
+        public static List<HentaiVideo> Visible(IReadOnlyList<HentaiVideo> catalog, HentaiSettings config)
         {
             var hidden = config.NormalizedHiddenTags();
             return catalog
@@ -72,19 +70,19 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
         }
 
         /// <summary>
-        /// Groups the videos into series by name ("Title 2" is episode 2 of "Title") and numbers
-        /// the episodes: by the numbers in their names, or in order of release where those
-        /// are missing or taken twice.
+        /// Groups the videos into series by name ("Title 2" is episode 2 of "Title"; names are
+        /// compared without case, spaces and punctuation) and numbers the episodes: by their
+        /// numbers, or in order of release where those are missing or taken twice.
         /// </summary>
-        public static IReadOnlyList<LibrarySeries> Series(IEnumerable<HanimeVideo> videos) =>
+        public static IReadOnlyList<LibrarySeries> Series(IEnumerable<HentaiVideo> videos) =>
             videos
-                .GroupBy(v => v.SeriesInfo().Series, StringComparer.OrdinalIgnoreCase)
+                .GroupBy(v => v.SeriesKey(), StringComparer.Ordinal)
                 .Select(g =>
                 {
                     var ordered = g
                         .OrderBy(v => v.SeriesInfo().Episode)
                         .ThenBy(v => v.ReleasedAt ?? v.CreatedAt ?? DateTime.MaxValue)
-                        .ThenBy(v => v.Slug, StringComparer.Ordinal)
+                        .ThenBy(v => v.Key, StringComparer.Ordinal)
                         .ToList();
                     var numbers = ordered.Select(v => v.SeriesInfo().Episode).ToList();
                     if (numbers.Distinct().Count() != numbers.Count)
@@ -92,10 +90,10 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
                         numbers = Enumerable.Range(1, ordered.Count).ToList();
                     }
 
-                    // The name as most episodes spell it
-                    var name = g.Select(v => v.SeriesInfo().Series)
-                        .GroupBy(n => n, StringComparer.Ordinal)
+                    // The name as most episodes spell it, else as the preferred source does
+                    var name = g.GroupBy(v => v.SeriesInfo().Series, StringComparer.Ordinal)
                         .OrderByDescending(n => n.Count())
+                        .ThenBy(n => n.Min(v => v.Source))
                         .ThenBy(n => n.Key, StringComparer.Ordinal)
                         .First().Key;
                     return new LibrarySeries(name, ordered.Zip(numbers).ToList());
@@ -144,7 +142,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
             return Serialize(root);
         }
 
-        private static string EpisodeNfo(LibrarySeries series, HanimeVideo video, int number)
+        private static string EpisodeNfo(LibrarySeries series, HentaiVideo video, int number)
         {
             var votes = video.Likes + video.Dislikes;
             var root = new XElement(
@@ -164,7 +162,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
                 new XElement("mpaa", AdultRating),
                 // The upload time: "Date added" sorts by it
                 Optional("dateadded", Timestamp(video.CreatedAt)),
-                new XElement("uniqueid", new XAttribute("type", ProviderName), new XAttribute("default", "true"), video.Slug),
+                new XElement("uniqueid", new XAttribute("type", HentaiVideo.SourcePrefix(video.Source)), new XAttribute("default", "true"), video.Id),
                 // Episodes show a landscape image
                 Image("poster", video.ThumbnailUrl ?? video.PosterUrl));
             return Serialize(root);
@@ -204,5 +202,5 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
     /// <summary>
     /// A series and its numbered episodes.
     /// </summary>
-    public sealed record LibrarySeries(string Name, IReadOnlyList<(HanimeVideo Video, int Number)> Episodes);
+    public sealed record LibrarySeries(string Name, IReadOnlyList<(HentaiVideo Video, int Number)> Episodes);
 }

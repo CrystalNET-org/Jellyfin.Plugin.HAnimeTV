@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Jellyfin.Plugin.HAnimeTV.Configuration;
 using Jellyfin.Plugin.HAnimeTV.Hanime;
+using Jellyfin.Plugin.HAnimeTV.Hentai;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
@@ -12,7 +13,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
 {
     public class HanimeClientTests
     {
-        private readonly PluginConfiguration _config = new();
+        private readonly HentaiSettings _config = new();
         private readonly FakeHandler _handler = new();
         private readonly FakeTime _time = new(new DateTimeOffset(2026, 10, 7, 12, 0, 0, TimeSpan.Zero));
 
@@ -33,7 +34,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             using var hits = JsonDocument.Parse(JsonSerializer.Serialize(new { page = 0, hits = """[{ "slug": "b", "name": "B" }]""" }));
 
             Assert.Equal(new[] { "A" }, HanimeClient.ParseCatalog(array.RootElement).Select(v => v.Name));
-            Assert.Equal(new[] { "b" }, HanimeClient.ParseCatalog(hits.RootElement).Select(v => v.Slug));
+            Assert.Equal(new[] { "b" }, HanimeClient.ParseCatalog(hits.RootElement).Select(v => v.Id));
         }
 
         [Fact]
@@ -57,7 +58,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
 
             var video = Assert.Single(HanimeClient.ParseCatalog(current.RootElement));
 
-            Assert.Equal("some-title-2", video.Slug);
+            Assert.Equal("some-title-2", video.Id);
             Assert.True(video.IsCensored);
             Assert.Equal(new DateTime(2014, 5, 6, 12, 56, 9, DateTimeKind.Utc), video.CreatedAt);
         }
@@ -112,7 +113,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
 
             Assert.Equal("https://hanime.tv/hls/x.m3u8", Assert.Single(streams).Url);
             Assert.Equal(HttpMethod.Post, sent!.Method);
-            Assert.Equal(PluginConfiguration.DefaultHandshakeUrl, sent.RequestUri!.ToString());
+            Assert.Equal(HentaiSettings.DefaultHandshakeUrl, sent.RequestUri!.ToString());
             var time = _time.GetUtcNow().ToUnixTimeSeconds();
             Assert.Equal(HanimeCrypto.WebSignature(time), sent.Headers.GetValues("X-Signature").Single());
             Assert.Equal("web2", sent.Headers.GetValues("X-Signature-Version").Single());
@@ -145,7 +146,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             _handler.Respond = async request =>
             {
                 requests.Add((request, request.Content is null ? string.Empty : await request.Content.ReadAsStringAsync()));
-                if (request.RequestUri!.ToString() == PluginConfiguration.DefaultLoginUrl)
+                if (request.RequestUri!.ToString() == HentaiSettings.DefaultLoginUrl)
                 {
                     return new HttpResponseMessage(HttpStatusCode.OK)
                     {
@@ -179,7 +180,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             var logins = 0;
             _handler.Respond = request =>
             {
-                if (request.RequestUri!.ToString() == PluginConfiguration.DefaultLoginUrl)
+                if (request.RequestUri!.ToString() == HentaiSettings.DefaultLoginUrl)
                 {
                     logins++;
                     return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized) { Content = new StringContent("""{ "errors": ["bad"] }""") });

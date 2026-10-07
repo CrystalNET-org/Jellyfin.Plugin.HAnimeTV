@@ -16,20 +16,22 @@ Only the latest release receives security fixes.
 
 ## What the plugin protects
 
-- **Who sees the library.** Only the users selected in the settings see the hanime.tv library
-  and its series and episodes; a new installation selects nobody. With *Enforce through the
-  users' library access* (on by default), the library access in every user's policy follows the
-  selection, so Jellyfin itself hides the library from everyone else, also by id and for
+- **Who sees a provider.** Only the users selected for a provider see its library or channel
+  and their videos; a new installation selects nobody. With *Enforce through the users' channel
+  and library access* (on by default), the channel and library access in every user's policy
+  follows the selections, so Jellyfin itself hides them from everyone else, also by id and for
   playback. Because Jellyfin reports no changes to a user's access, an administrator granting
-  a user all libraries in the dashboard takes effect until the plugin's next check (at most 15
-  minutes, scheduled task *Enforce hanime.tv library access*).
-- **Parental controls.** The series and episodes are rated `XXX`, so users with a parental
-  rating limit do not see them even if selected.
-- **Stream links.** The library's `.strm` files point at the plugin's stream endpoint, which
-  players use without a Jellyfin login (Jellyfin's ffmpeg has none). It requires the plugin's
-  random stream token, and only fetches URLs taken from hanime.tv's answers, each signed with
-  that token, so it is no open proxy. Users who can see the library can read the token; with it,
-  anyone can stream hanime.tv's videos through the server, nothing else.
+  a user all channels or libraries in the dashboard takes effect until the plugin's next check
+  (at most 15 minutes, scheduled task *Enforce Adult Media access*). The channels also refuse to
+  list their content for users who are not selected.
+- **Parental controls.** Everything is rated `XXX` and the channels are marked as adult, so
+  users with a parental rating limit do not see them even if selected.
+- **Stream links.** The `.strm` files and channel videos point at the plugin's stream
+  endpoints, which players use without a Jellyfin login (Jellyfin's ffmpeg has none). They
+  require the plugin's random stream token, and only fetch URLs taken from the sites' answers,
+  each signed with that token, and for Hentai Haven only pages of the configured site, so they
+  are no open proxy. Users who can see a provider can read the token; with it, anyone can stream
+  the providers' videos through the server, nothing else.
 - **The library folder.** The plugin only writes to an empty folder or one it created (marked
   by a `.hanime-tv-library` file), as it deletes what it did not write there.
 - **The plugin's API** (status, test, sync, applying access) is available to administrators only.
@@ -37,6 +39,6 @@ Only the latest release receives security fixes.
   like other plugin settings, and is shown to administrators on the settings page. It is only
   sent to the configured login URL.
 
-Streams are fetched from hanime.tv (or the configured stream host) by the plugin and served to
-players through Jellyfin; clients never contact hanime.tv for playback. Cover images are
-downloaded by Jellyfin from hanime.tv's CDN.
+Streams are fetched from the sites (or the configured relays) by the plugin and served to
+players through Jellyfin; clients never contact the sites for playback. Cover images are
+downloaded by Jellyfin from the sites' CDNs.
