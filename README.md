@@ -98,11 +98,18 @@ play that link themselves; other clients get it remuxed or transcoded by Jellyfi
 | Account | Email, password | empty | Optional hanime.tv account; premium adds 1080p. After a failed login, videos play as a guest and the login is retried after 15 minutes. |
 | Advanced | Catalog, handshake and login URL, stream host | hanime.tv | To use a relay. |
 
-**Jellyfin address for the stream links:** the address in the `.strm` files. Browsers fetch
-these links themselves, so it must be the address your clients open Jellyfin with, e.g.
-`https://jellyfin.example.com` (an `http://` address on an `https://` site is blocked by
-browsers). Jellyfin's own ffmpeg, or its ffmpeg workers, must reach it too. The settings page
-fills in its own address; after changing it, the next sync rewrites the links.
+**Jellyfin address for the stream links:** the address in the `.strm` files. Jellyfin's ffmpeg,
+and every ffmpeg worker, starts streams from it, and browsers fetch these links themselves, so
+it must be the address your clients open Jellyfin with, e.g. `https://jellyfin.example.com` (an
+`http://` address on an `https://` site is blocked by browsers), and reachable from all ffmpeg
+workers. The settings page fills in its own address; save to use it. After changing it, the
+next sync rewrites the links. Left empty, the links use Jellyfin's guess of its own address,
+which the *Status* section flags.
+
+**In Kubernetes**, use the ingress address. Jellyfin's guess is the pod's IP, which changes with
+every restart and which ffmpeg workers outside the cluster cannot reach (ffmpeg fails with
+`Connection to tcp://10.244.…:8096 failed: Connection timed out`). Through the ingress, every
+worker, inside or outside the cluster, reaches the same address as the browsers.
 
 **Test** checks the settings as entered, before saving them: it downloads the catalog and asks
 for the streams of the newest video.
@@ -138,6 +145,9 @@ through your server, and users who can see the library can read it.
 - **Playback fails in the browser but works in apps:** the stream links' address is not
   reachable from the browser, or is `http://` while Jellyfin is opened with `https://`. Set
   *Jellyfin address for the stream links* to the address you open Jellyfin with.
+- **ffmpeg fails with `Connection to tcp://…:8096 failed`:** the ffmpeg workers cannot reach the
+  stream links' address, e.g. a pod IP. Set *Jellyfin address for the stream links* (see
+  *Settings*, *In Kubernetes*).
 - **Playback fails everywhere:** click **Test**: hanime.tv may have changed its stream API.
 - **An episode is in the wrong series:** series come from the episode names. Edit the episode's
   metadata in Jellyfin, or report the title.

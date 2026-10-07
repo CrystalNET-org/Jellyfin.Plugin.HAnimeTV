@@ -66,6 +66,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
                 LibraryFolder = _locator.FolderPath,
                 LibraryId = libraryId,
                 StreamBaseUrl = _sync.StreamBaseUrl(config),
+                // Jellyfin's own guess, e.g. a pod IP in Kubernetes, which ffmpeg workers elsewhere cannot reach
+                StreamBaseUrlDetected = string.IsNullOrWhiteSpace(config.StreamBaseUrl),
                 config.EnforceAccess,
                 _sync.LastReport,
                 _client.CatalogTime,

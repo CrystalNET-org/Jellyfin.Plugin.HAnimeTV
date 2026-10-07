@@ -234,10 +234,12 @@
                         </div>
                         <div class="inputContainer">
                             <input type="url" id="streamBaseUrl" is="emby-input" label="Jellyfin address for the stream links" />
-                            <div class="fieldDescription">The address the stream links in the .strm files use, e.g.
-                                <code>https://jellyfin.example.com</code>. Browsers play these links themselves, so use the address
-                                your clients open Jellyfin with; Jellyfin's ffmpeg (or its workers) must reach it too. Filled in
-                                with this page's address when empty.</div>
+                            <div class="fieldDescription">The address in the stream links of the .strm files, e.g.
+                                <code>https://jellyfin.example.com</code>. Jellyfin's ffmpeg and every ffmpeg worker start streams
+                                from it, and browsers play these links themselves, so use the address your clients open Jellyfin
+                                with, as long as all ffmpeg workers reach it too. In Kubernetes, that is the ingress address:
+                                Jellyfin's own guess is the pod's IP, which changes and is not reachable from outside the cluster.
+                                Filled in with this page's address when empty; save to use it.</div>
                         </div>
                     </section>
 
@@ -408,6 +410,9 @@
                     if (get(status, 'CatalogError')) {
                         text = 'Catalog unavailable';
                         state = 'error';
+                    } else if (get(status, 'StreamBaseUrlDetected')) {
+                        text = 'Set the stream address';
+                        state = 'warn';
                     } else if (selected.size === 0) {
                         text = 'No users selected';
                         state = 'warn';
@@ -435,7 +440,9 @@
                         lines.push(libraryId
                             ? 'Jellyfin library: found for ' + get(status, 'LibraryFolder')
                             : '✘ No Jellyfin library for ' + get(status, 'LibraryFolder') + ' yet: tick "Create the Jellyfin library" or add it under Dashboard → Libraries');
-                        lines.push('Stream links: ' + get(status, 'StreamBaseUrl') + '/HanimeTV/Stream/…');
+                        lines.push(get(status, 'StreamBaseUrlDetected')
+                            ? '✘ Stream links: ' + get(status, 'StreamBaseUrl') + '/HanimeTV/Stream/…, guessed by Jellyfin: set the address under Library and save'
+                            : 'Stream links: ' + get(status, 'StreamBaseUrl') + '/HanimeTV/Stream/…');
                         const count = get(status, 'CatalogCount');
                         if (count != null) {
                             lines.push('Catalog: ' + count + ' videos, downloaded ' + formatTime(get(status, 'CatalogTime')));
@@ -480,7 +487,8 @@
                         $('#loginUrl').value = config.LoginUrl || defaults.LoginUrl;
                         $('#streamHost').value = config.StreamHost || defaults.StreamHost;
                         showSection(currentSection);
-                        setFooterMessage('', '');
+                        // The address filled in from this page counts only once saved
+                        setFooterMessage(config.StreamBaseUrl ? '' : 'Unsaved changes: the stream address under Library', config.StreamBaseUrl ? '' : 'dirty');
                         return loadStatus();
                     }).finally(() => Dashboard.hideLoadingMsg());
                 }
