@@ -21,8 +21,8 @@ Everything plays through Jellyfin on every client.
 - **One hentai catalog from three sites:** series with the same name are one series, whichever
   site they come from; an episode several sites have comes from hanime.tv, else oppai.stream,
   else Hentai Haven. Each site can be turned off.
-- **Subtitles and 4K from oppai.stream:** its subtitles are saved next to the episodes (or
-  offered by the channel), and its streams play in up to 4K.
+- **Subtitles from oppai.stream:** its subtitles are saved next to the episodes (or offered by
+  the channel); its episodes play as MP4 in up to 1080p.
 - **Only for selected users, per provider:** a provider's library or channel is invisible to
   everyone else, administrators included, through Jellyfin's own channel and library access.
   A new installation selects nobody.

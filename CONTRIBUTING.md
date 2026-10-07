@@ -72,14 +72,18 @@ All of that is in `Hanime/`; when hanime.tv changes something, that is where to 
 oppai.stream is read the way its [Aniyomi extension](https://github.com/Kohi-den/extensions-source/tree/main/src/en/oppaistream)
 reads it (`OppaiStream/`):
 
-- **Catalog:** `actions/search.php?order=uploaded&page=N&limit=36` lists every episode, newest
-  first, as cards (`div.episode-shown`) linking to the episode's page (`watch?e=<name>&f=…`).
+- **Catalog:** `actions/search.php?text=&order=uploaded&page=N&limit=36&genres=&blacklist=&studio=&ibt=0&swa=0`
+  lists every episode, newest first, as cards (`div.episode-shown`) linking to the episode's
+  page (`watch?e=<name>…`), the title as `<h5 class="title-ep"><font class="title">Name</font>
+  <font class="ep">N</font></h5>`. It is asked for as the site's search page (`search.php?a=recent`)
+  asks for it: every parameter, `X-Requested-With: XMLHttpRequest`, that page as Referer.
   Each episode's page is read once (again after 30 days) and kept on disk
   (`<data>/adult-media/oppaistream.json`): title (`Name Ep N`), description, tags, studio,
   subtitle tracks. The site shows no upload dates; episodes count as uploaded when the plugin
   first lists them.
-- **Streams:** the page's `var availableres = {"1080": "…", "4k": "…"}`, usually MP4 files,
-  served through the plugin as `video.mp4` with ranges.
+- **Streams:** the page's `var availableres = {"720": "…", "1080": "…", "4k": "…"}`: MP4 files,
+  but 4K as WebM, which few clients play without transcoding 4K, so the best MP4 comes first.
+  Served through the plugin as `video.mp4` with ranges.
 - **Subtitles:** the page's `<track>`s. The sync saves them next to the episode
   (`Show S01E01.en.vtt`), downloading each once; the channel offers them as external streams
   through the plugin.

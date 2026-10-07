@@ -68,7 +68,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
         /// </summary>
         /// <param name="cookies">Cookies to send, and to add those the site sets to; null for none.</param>
         /// <param name="notFoundIsEmpty">Whether a missing page is empty rather than an error.</param>
-        public async Task<string> GetPageAsync(Uri url, Uri? referer, Dictionary<string, string>? cookies, CancellationToken cancellationToken, bool notFoundIsEmpty = false)
+        /// <param name="ajax">Whether to ask as the site's own scripts do (jQuery's <c>$.ajax</c>).</param>
+        public async Task<string> GetPageAsync(Uri url, Uri? referer, Dictionary<string, string>? cookies, CancellationToken cancellationToken, bool notFoundIsEmpty = false, bool ajax = false)
         {
             var retriedWithClearance = false;
             for (var attempt = 1; ; attempt++)
@@ -77,7 +78,16 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
                 _clearances.TryGetValue(url.Host, out var clearance);
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 AddBrowserHeaders(request, referer, clearance?.UserAgent);
-                request.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                if (ajax)
+                {
+                    request.Headers.TryAddWithoutValidation("Accept", "*/*");
+                    request.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
+                }
+                else
+                {
+                    request.Headers.TryAddWithoutValidation("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+                }
+
                 AddCookies(request, cookies, clearance?.Cookies);
 
                 using var response = await SendAsync(request, cancellationToken).ConfigureAwait(false);

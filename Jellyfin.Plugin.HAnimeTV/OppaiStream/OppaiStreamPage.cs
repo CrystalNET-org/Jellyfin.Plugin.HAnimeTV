@@ -17,6 +17,8 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
     public sealed record OppaiStreamStream(string Url, string Label, int Height)
     {
         public bool IsHls => Url.Contains(".m3u8", StringComparison.OrdinalIgnoreCase);
+
+        public bool IsWebm => new Uri(Url).AbsolutePath.EndsWith(".webm", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -188,7 +190,9 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
                 .Where(p => p.Url is not null)
                 .Select(p => new OppaiStreamStream(p.Url!, Resolution(p.Label), Height(p.Label)))
                 .DistinctBy(s => s.Url)
-                .OrderByDescending(s => s.Height)
+                // 4K comes as WebM, which few clients play without transcoding 4K: MP4 first
+                .OrderBy(s => s.IsWebm)
+                .ThenByDescending(s => s.Height)
                 .ToList();
         }
 
@@ -271,7 +275,8 @@ namespace Jellyfin.Plugin.HAnimeTV.OppaiStream
         [GeneratedRegex(@"<a\b[^>]*?\b(?:exur)\s*=\s*""(?<href>[^""]+)""|<a\b[^>]*?\bhref\s*=\s*""(?<href>[^""#][^""]*)""", RegexOptions.IgnoreCase)]
         private static partial Regex Link();
 
-        [GeneratedRegex(@"class=""[^""]*\btitle-ep\b[^""]*""[^>]*>(?<title>.*?)</", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+        // The whole heading: the site splits it into <font class="title">Name</font> <font class="ep">1</font>
+        [GeneratedRegex(@"class=""[^""]*\btitle-ep\b[^""]*""[^>]*>(?<title>.*?)</(?:h\d|div)>", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
         private static partial Regex TitleEp();
 
         [GeneratedRegex(@"<img\b[^>]*class=""[^""]*\bcover-img-in\b[^""]*""[^>]*>", RegexOptions.IgnoreCase)]
