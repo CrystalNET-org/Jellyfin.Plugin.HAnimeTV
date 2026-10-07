@@ -211,6 +211,18 @@ namespace Jellyfin.Plugin.HAnimeTV.Controllers
     }
 
     /// <summary>
+    /// oppai.stream's streams, by the encoded address of the episode's page.
+    /// </summary>
+    [Route("HanimeTV/OppaiStream/{id}")]
+    public class OppaiStreamStreamController : StreamProxyController
+    {
+        public OppaiStreamStreamController(OppaiStreamResolver resolver, ILogger<OppaiStreamStreamController> logger)
+            : base(resolver, logger)
+        {
+        }
+    }
+
+    /// <summary>
     /// Pornhub's streams, by viewkey.
     /// </summary>
     [Route("HanimeTV/Pornhub/{id}")]

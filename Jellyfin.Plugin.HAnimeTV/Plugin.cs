@@ -7,8 +7,8 @@ using MediaBrowser.Model.Serialization;
 namespace Jellyfin.Plugin.HAnimeTV
 {
     /// <summary>
-    /// Adult media providers (hentai from hanime.tv and Hentai Haven, Pornhub) as channels or
-    /// shows libraries, each for selected users only.
+    /// Adult media providers (hentai from hanime.tv, oppai.stream and Hentai Haven, Pornhub) as
+    /// channels or shows libraries, each for selected users only.
     /// </summary>
     /// <remarks>
     /// The plugin started as "hanime.tv"; its id and assembly stay, so installations update
@@ -32,7 +32,7 @@ namespace Jellyfin.Plugin.HAnimeTV
 
         public override string Name => "Adult Media";
 
-        public override string Description => "Hentai (hanime.tv and Hentai Haven) and Pornhub as channels or shows libraries, for selected users only.";
+        public override string Description => "Hentai (hanime.tv, oppai.stream and Hentai Haven) and Pornhub as channels or shows libraries, for selected users only.";
 
         public IEnumerable<PluginPageInfo> GetPages()
         {

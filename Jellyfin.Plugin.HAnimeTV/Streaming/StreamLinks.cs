@@ -19,6 +19,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Streaming
 
         public const string HentaiHavenPath = "/HanimeTV/HentaiHaven/";
 
+        public const string OppaiStreamPath = "/HanimeTV/OppaiStream/";
+
         private readonly IServerApplicationHost _applicationHost;
         private readonly object _tokenLock = new();
 
@@ -48,12 +50,26 @@ namespace Jellyfin.Plugin.HAnimeTV.Streaming
         /// <param name="path">The episode page's path at Hentai Haven.</param>
         public string HentaiHaven(string path) => Link(HentaiHavenPath, EncodeId(path));
 
+        /// <param name="path">The episode page's address at oppai.stream.</param>
+        /// <param name="hls">Whether the episode's stream is HLS; else the link is an MP4 file.</param>
+        public string OppaiStream(string path, bool hls) => Link(OppaiStreamPath, EncodeId(path), hls);
+
+        /// <summary>
+        /// Gets a link through the plugin to a file of a video's source, e.g. a subtitle.
+        /// </summary>
+        public string OppaiStreamFile(string path, Uri file)
+        {
+            var plugin = Plugin.Instance ?? throw new InvalidOperationException("The plugin is not loaded");
+            return BaseUrl(plugin.Configuration) + OppaiStreamPath + Uri.EscapeDataString(EncodeId(path)) + "/" + HlsProxy.Link(file, Token(plugin), 0);
+        }
+
         /// <summary>
         /// Gets the link of a video of the hentai catalog.
         /// </summary>
         public string For(HentaiVideo video) => video.Source switch
         {
             HentaiSource.Hanime => Hanime(video.Id),
+            HentaiSource.OppaiStream => OppaiStream(video.Id, !video.StreamIsFile),
             _ => HentaiHaven(video.Id),
         };
 

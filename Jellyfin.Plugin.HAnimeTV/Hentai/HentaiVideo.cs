@@ -12,7 +12,29 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
     public enum HentaiSource
     {
         Hanime,
+        OppaiStream,
         HentaiHaven,
+    }
+
+    /// <summary>
+    /// A subtitle of a video.
+    /// </summary>
+    /// <param name="Language">Its ISO 639-1 code, e.g. "en", or "und".</param>
+    /// <param name="Label">What the site calls it.</param>
+    /// <param name="Url">Where the site serves it.</param>
+    public sealed record HentaiSubtitle(string Language, string Label, string Url)
+    {
+        /// <summary>
+        /// Gets the file extension, from its address: ".vtt", ".srt" or ".ass".
+        /// </summary>
+        public string Extension
+        {
+            get
+            {
+                var extension = Uri.TryCreate(Url, UriKind.Absolute, out var uri) ? Path.GetExtension(uri.AbsolutePath).ToLowerInvariant() : string.Empty;
+                return extension is ".vtt" or ".srt" or ".ass" or ".ssa" ? extension : ".vtt";
+            }
+        }
     }
 
     /// <summary>
@@ -26,8 +48,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
         public HentaiSource Source { get; init; }
 
         /// <summary>
-        /// Gets the video's id at its source: hanime.tv's slug, or the path of Hentai Haven's
-        /// episode page.
+        /// Gets the video's id at its source: hanime.tv's slug, or the address of the episode's
+        /// page at oppai.stream or Hentai Haven, relative to the site.
         /// </summary>
         public required string Id { get; init; }
 
@@ -47,6 +69,16 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
         /// Gets the video's page at its source.
         /// </summary>
         public string? PageUrl { get; init; }
+
+        /// <summary>
+        /// Gets a value indicating whether the video's stream is a file (MP4) rather than HLS.
+        /// </summary>
+        public bool StreamIsFile { get; init; }
+
+        /// <summary>
+        /// Gets the subtitles the source serves next to the video.
+        /// </summary>
+        public IReadOnlyList<HentaiSubtitle> Subtitles { get; init; } = Array.Empty<HentaiSubtitle>();
 
         /// <summary>
         /// Gets the id that is unique across sources: "hanime:slug" or "hentaihaven:path".
@@ -143,6 +175,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
         public static string SourcePrefix(HentaiSource source) => source switch
         {
             HentaiSource.Hanime => "hanime",
+            HentaiSource.OppaiStream => "oppaistream",
             _ => "hentaihaven",
         };
 

@@ -49,7 +49,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Configuration
     }
 
     /// <summary>
-    /// Hentai: hanime.tv and Hentai Haven, merged into one channel or shows library.
+    /// Hentai: hanime.tv, oppai.stream and Hentai Haven, merged into one channel or shows library.
     /// </summary>
     public class HentaiSettings : ProviderSettings
     {
@@ -65,6 +65,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Configuration
 
         public const string DefaultHentaiHavenUrl = "https://hentaihaven.co";
 
+        public const string DefaultOppaiStreamUrl = "https://oppai.stream";
+
         public HentaiSettings()
         {
             Mode = ProviderMode.Library;
@@ -76,8 +78,19 @@ namespace Jellyfin.Plugin.HAnimeTV.Configuration
         public bool HanimeEnabled { get; set; } = true;
 
         /// <summary>
+        /// Gets or sets a value indicating whether oppai.stream's videos are included. Episodes
+        /// hanime.tv has too come from hanime.tv.
+        /// </summary>
+        public bool OppaiStreamEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Gets or sets oppai.stream's address.
+        /// </summary>
+        public string OppaiStreamUrl { get; set; } = DefaultOppaiStreamUrl;
+
+        /// <summary>
         /// Gets or sets a value indicating whether Hentai Haven's videos are included. Episodes
-        /// both sites have come from hanime.tv.
+        /// another source has too come from that source.
         /// </summary>
         public bool HentaiHavenEnabled { get; set; } = true;
 

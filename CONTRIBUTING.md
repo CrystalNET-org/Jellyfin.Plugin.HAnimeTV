@@ -4,7 +4,7 @@ Bug reports, ideas and pull requests are welcome.
 
 - **Bugs:** open an [issue](https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/issues)
   with the steps to reproduce, the Jellyfin and plugin versions, the result of *Test* and the
-  relevant lines from Jellyfin's log (search for `hanime.tv`, `Hentai Haven`, `Pornhub` and
+  relevant lines from Jellyfin's log (search for `hanime.tv`, `oppai.stream`, `Hentai Haven`, `Pornhub` and
   `Adult Media`).
 - **Pull requests:** against `main`. Keep them focused, and update the README when behaviour
   or settings change.
@@ -17,6 +17,7 @@ Jellyfin.Plugin.HAnimeTV/
 │   ├── Plugin.cs                    # plugin entry, settings page registration
 │   ├── PluginServiceRegistrator.cs  # registers the clients, channels, library sync and access enforcement
 │   ├── Hanime/                      # hanime.tv client: catalog, stream handshake, login, signatures
+│   ├── OppaiStream/                 # oppai.stream client: search, episode pages, streams, subtitles
 │   ├── HentaiHaven/                 # Hentai Haven client: series list and pages, the player's API
 │   ├── Hentai/                      # the merged hentai catalog and its videos
 │   ├── Pornhub/                     # Pornhub client: webmasters API, video pages
@@ -44,9 +45,9 @@ Jellyfin.Plugin.HAnimeTV/
 The plugin has two providers, each shown as a channel or (hentai only) a shows library, for
 the users selected for it (`Configuration/ProviderSettings.cs`):
 
-- **Hentai** merges hanime.tv's and Hentai Haven's catalogs (`Hentai/HentaiCatalog.cs`): series
-  are matched by name without case, spaces and punctuation, and an episode both sites have comes
-  from hanime.tv.
+- **Hentai** merges the catalogs of hanime.tv, oppai.stream and Hentai Haven
+  (`Hentai/HentaiCatalog.cs`): series are matched by name without case, spaces and punctuation,
+  and an episode several sites have comes from the first of them in that order.
 - **Pornhub** is a channel over Pornhub's public webmasters API.
 
 ### hanime.tv
@@ -66,6 +67,23 @@ hanime.tv has no public API; the plugin does what its site does:
 
 All of that is in `Hanime/`; when hanime.tv changes something, that is where to look.
 
+### oppai.stream
+
+oppai.stream is read the way its [Aniyomi extension](https://github.com/Kohi-den/extensions-source/tree/main/src/en/oppaistream)
+reads it (`OppaiStream/`):
+
+- **Catalog:** `actions/search.php?order=uploaded&page=N&limit=36` lists every episode, newest
+  first, as cards (`div.episode-shown`) linking to the episode's page (`watch?e=<name>&f=…`).
+  Each episode's page is read once (again after 30 days) and kept on disk
+  (`<data>/adult-media/oppaistream.json`): title (`Name Ep N`), description, tags, studio,
+  subtitle tracks. The site shows no upload dates; episodes count as uploaded when the plugin
+  first lists them.
+- **Streams:** the page's `var availableres = {"1080": "…", "4k": "…"}`, usually MP4 files,
+  served through the plugin as `video.mp4` with ranges.
+- **Subtitles:** the page's `<track>`s. The sync saves them next to the episode
+  (`Show S01E01.en.vtt`), downloading each once; the channel offers them as external streams
+  through the plugin.
+
 ### Hentai Haven
 
 Hentai Haven runs WordPress with the Madara theme (series are "manga", episodes "chapters") and
@@ -81,8 +99,8 @@ its `player-logic` plugin (`HentaiHaven/`):
   `iv`); `POST /wp-content/plugins/player-logic/api.php` with `action=zarat_get_data_player_ajax`,
   `a=<en>`, `b=<iv>` answers with the HLS sources.
 
-If Hentai Haven cannot be read and was never read before, the sync leaves it out rather than
-failing; once read, its last catalog is used instead.
+If oppai.stream or Hentai Haven cannot be read and was never read before, the sync leaves it
+out rather than failing; once read, its last catalog is used instead.
 
 ### Pornhub
 
@@ -128,7 +146,7 @@ dotnet test Jellyfin.Plugin.HAnimeTV.Tests
 
 The integration test (`.woodpecker/integration.yaml`) runs the plugin in the official Jellyfin
 12.1 and 12.2 images against `tests/integration/fake-hanime.py`, which stands in for hanime.tv,
-Hentai Haven and Pornhub: it checks the plugin's signatures, sealed handshake, player keys and
+oppai.stream, Hentai Haven and Pornhub: it checks the plugin's signatures, sealed handshake, player keys and
 headers like the sites do and serves real HLS streams and an MP4 file. The plugin starts with
 settings of version 0.1. `tests/integration/check.py` then creates users and checks through
 Jellyfin's API that the settings move into the hentai provider, that the plugin merges both

@@ -1,6 +1,7 @@
 using Jellyfin.Plugin.HAnimeTV.Configuration;
 using Jellyfin.Plugin.HAnimeTV.Hanime;
 using Jellyfin.Plugin.HAnimeTV.HentaiHaven;
+using Jellyfin.Plugin.HAnimeTV.OppaiStream;
 using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.HAnimeTV.Hentai
@@ -11,18 +12,20 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
     public sealed record HentaiSourceStatus(string Name, bool Enabled, int? Count, DateTimeOffset? Time, string? Error);
 
     /// <summary>
-    /// The catalogs of hanime.tv and Hentai Haven, merged: an episode both have (same series
-    /// and number) is listed once, from hanime.tv.
+    /// The catalogs of hanime.tv, oppai.stream and Hentai Haven, merged: an episode several
+    /// have (same series and number) is listed once, from the first of them in that order.
     /// </summary>
     public sealed class HentaiCatalog
     {
         private readonly HanimeClient _hanime;
+        private readonly OppaiStreamClient _oppaiStream;
         private readonly HentaiHavenClient _hentaiHaven;
         private readonly ILogger<HentaiCatalog> _logger;
 
-        public HentaiCatalog(HanimeClient hanime, HentaiHavenClient hentaiHaven, ILogger<HentaiCatalog> logger)
+        public HentaiCatalog(HanimeClient hanime, OppaiStreamClient oppaiStream, HentaiHavenClient hentaiHaven, ILogger<HentaiCatalog> logger)
         {
             _hanime = hanime;
+            _oppaiStream = oppaiStream;
             _hentaiHaven = hentaiHaven;
             _logger = logger;
         }
@@ -30,6 +33,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
         public IReadOnlyList<HentaiSourceStatus> Status(HentaiSettings config) =>
         [
             new("hanime.tv", config.HanimeEnabled, _hanime.CatalogCount, _hanime.CatalogTime, _hanime.CatalogError),
+            new("oppai.stream", config.OppaiStreamEnabled, _oppaiStream.CatalogCount, _oppaiStream.CatalogTime, _oppaiStream.CatalogError),
             new("Hentai Haven", config.HentaiHavenEnabled, _hentaiHaven.CatalogCount, _hentaiHaven.CatalogTime, _hentaiHaven.CatalogError),
         ];
 
@@ -57,6 +61,19 @@ namespace Jellyfin.Plugin.HAnimeTV.Hentai
                     // hanime.tv's catalog is kept in memory only: after a restart, leaving it out
                     // would delete its episodes from the library
                     throw new InvalidOperationException("hanime.tv: " + ex.Message, ex);
+                }
+            }
+
+            if (config.OppaiStreamEnabled)
+            {
+                try
+                {
+                    catalogs.Add(await _oppaiStream.GetCatalogAsync(cancellationToken).ConfigureAwait(false));
+                }
+                catch (OppaiStreamException ex)
+                {
+                    _logger.LogWarning("oppai.stream: left out: {Error}", ex.Message);
+                    errors.Add("oppai.stream: " + ex.Message);
                 }
             }
 

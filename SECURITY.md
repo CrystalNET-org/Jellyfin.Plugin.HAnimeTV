@@ -29,7 +29,7 @@ Only the latest release receives security fixes.
 - **Stream links.** The `.strm` files and channel videos point at the plugin's stream
   endpoints, which players use without a Jellyfin login (Jellyfin's ffmpeg has none). They
   require the plugin's random stream token, and only fetch URLs taken from the sites' answers,
-  each signed with that token, and for Hentai Haven only pages of the configured site, so they
+  each signed with that token, and for oppai.stream and Hentai Haven only pages of the configured sites, so they
   are no open proxy. Users who can see a provider can read the token; with it, anyone can stream
   the providers' videos through the server, nothing else.
 - **The library folder.** The plugin only writes to an empty folder or one it created (marked

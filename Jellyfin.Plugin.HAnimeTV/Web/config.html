@@ -184,8 +184,8 @@
 
                     <section class="htSection" data-section="hentai">
                         <h3 class="sectionTitle">Hentai</h3>
-                        <p>hanime.tv and Hentai Haven merged into one catalog: series with the same name are one series, and an
-                            episode both sites have comes from hanime.tv.</p>
+                        <p>hanime.tv, oppai.stream and Hentai Haven merged into one catalog: series with the same name are one
+                            series, and an episode several sites have comes from the first of them in this order.</p>
                         <div class="selectContainer">
                             <select is="emby-select" id="hentaiMode" class="htMode" label="Show as">
                                 <option value="Library">Shows library (series and episodes with metadata)</option>
@@ -199,6 +199,17 @@
                                 <input is="emby-checkbox" type="checkbox" id="hanimeEnabled" />
                                 <span>hanime.tv</span>
                             </label>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label>
+                                <input is="emby-checkbox" type="checkbox" id="oppaiStreamEnabled" />
+                                <span>oppai.stream</span>
+                            </label>
+                        </div>
+                        <div class="inputContainer htSourceUrl">
+                            <input type="url" id="oppaiStreamUrl" is="emby-input" label="oppai.stream address" />
+                            <div class="fieldDescription">Up to 4K, with the site's subtitles. Its first full read takes a while: every
+                                episode's page is read once, later syncs only read new episodes.</div>
                         </div>
                         <div class="checkboxContainer">
                             <label>
@@ -235,8 +246,8 @@
                         <div style="margin-top: 1.5em;">
                             <button is="emby-button" type="button" class="raised block htTest" data-provider="hentai"><span>Test</span></button>
                         </div>
-                        <div class="fieldDescription">Reads each enabled source's catalog (for Hentai Haven, its newest series) and asks for the
-                            streams of its newest video, with the settings as entered here, also before saving them.</div>
+                        <div class="fieldDescription">Reads each enabled source's catalog (for oppai.stream and Hentai Haven, the newest
+                            entries) and asks for the streams of its newest video, with the settings as entered here, also before saving them.</div>
                         <div class="fieldDescription htTestResult" data-provider="hentai"></div>
                     </section>
 
@@ -397,6 +408,7 @@
                     LoginUrl: 'https://www.universal-cdn.com/rapi/v7/sessions',
                     StreamHost: 'https://hanime.tv',
                     HentaiHavenUrl: 'https://hentaihaven.co',
+                    OppaiStreamUrl: 'https://oppai.stream',
                     PornhubApiUrl: 'https://www.pornhub.com/webmasters',
                     PornhubSiteUrl: 'https://www.pornhub.com',
                 };
@@ -597,6 +609,8 @@
                         };
                         $('#hentaiMode').value = modeName(hentai.Mode);
                         $('#hanimeEnabled').checked = hentai.HanimeEnabled !== false;
+                        $('#oppaiStreamEnabled').checked = hentai.OppaiStreamEnabled !== false;
+                        $('#oppaiStreamUrl').value = hentai.OppaiStreamUrl || defaults.OppaiStreamUrl;
                         $('#hentaiHavenEnabled').checked = hentai.HentaiHavenEnabled !== false;
                         $('#hentaiHavenUrl').value = hentai.HentaiHavenUrl || defaults.HentaiHavenUrl;
                         $('#hiddenTags').value = (hentai.HiddenTags || []).join(', ');
@@ -635,6 +649,8 @@
                     hentai.Mode = $('#hentaiMode').value;
                     hentai.AllowedUsers = Array.from(selected.Hentai).map(toGuid);
                     hentai.HanimeEnabled = $('#hanimeEnabled').checked;
+                    hentai.OppaiStreamEnabled = $('#oppaiStreamEnabled').checked;
+                    hentai.OppaiStreamUrl = $('#oppaiStreamUrl').value.trim().replace(/\/+$/, '') || defaults.OppaiStreamUrl;
                     hentai.HentaiHavenEnabled = $('#hentaiHavenEnabled').checked;
                     hentai.HentaiHavenUrl = $('#hentaiHavenUrl').value.trim().replace(/\/+$/, '') || defaults.HentaiHavenUrl;
                     hentai.HiddenTags = list($('#hiddenTags').value);
@@ -764,7 +780,7 @@
                         return;
                     }
                     button.disabled = true;
-                    $('#htSyncLibraryResult').textContent = 'Syncing… (the first read of Hentai Haven takes a few minutes)';
+                    $('#htSyncLibraryResult').textContent = 'Syncing… (the first read of oppai.stream and Hentai Haven takes a few minutes)';
                     api('POST', 'HanimeTV/Sync')
                         .then(report => {
                             const files = get(report, 'Files');

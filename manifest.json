@@ -2,8 +2,8 @@
   {
     "guid": "1029189a-8a81-4419-8b08-78eb68071a0d",
     "name": "Adult Media",
-    "description": "Hentai (hanime.tv and Hentai Haven) and Pornhub as channels or shows libraries, for selected users only.",
-    "overview": "Adult media providers in Jellyfin: hanime.tv and Hentai Haven merged into one hentai shows library or channel, with series, episodes and metadata, and Pornhub as a channel. Played through Jellyfin; each provider only for the users you select.",
+    "description": "Hentai (hanime.tv, oppai.stream and Hentai Haven) and Pornhub as channels or shows libraries, for selected users only.",
+    "overview": "Adult media providers in Jellyfin: hanime.tv, oppai.stream and Hentai Haven merged into one hentai shows library or channel, with series, episodes, metadata and subtitles, and Pornhub as a channel. Played through Jellyfin; each provider only for the users you select.",
     "owner": "CrystalNET-org",
     "category": "Anime",
     "imageUrl": "https://raw.githubusercontent.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/main/images/thumb.png",

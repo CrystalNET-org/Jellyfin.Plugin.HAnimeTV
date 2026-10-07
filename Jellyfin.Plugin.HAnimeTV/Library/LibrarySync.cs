@@ -2,6 +2,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.HAnimeTV.Access;
 using Jellyfin.Plugin.HAnimeTV.Configuration;
 using Jellyfin.Plugin.HAnimeTV.Hentai;
+using Jellyfin.Plugin.HAnimeTV.OppaiStream;
 using Jellyfin.Plugin.HAnimeTV.Streaming;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
@@ -30,6 +31,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
     public sealed class LibrarySync
     {
         private readonly HentaiCatalog _catalog;
+        private readonly OppaiStreamClient _oppaiStream;
         private readonly ILibraryManager _libraryManager;
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
@@ -41,6 +43,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
 
         public LibrarySync(
             HentaiCatalog catalog,
+            OppaiStreamClient oppaiStream,
             ILibraryManager libraryManager,
             IProviderManager providerManager,
             IFileSystem fileSystem,
@@ -50,6 +53,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
             ILogger<LibrarySync> logger)
         {
             _catalog = catalog;
+            _oppaiStream = oppaiStream;
             _libraryManager = libraryManager;
             _providerManager = providerManager;
             _fileSystem = fileSystem;
@@ -108,6 +112,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
             var files = LibraryLayout.Build(catalog, config, _links.For);
 
             var folder = _locator.FolderPath;
+            files = await DownloadAsync(folder, files, cancellationToken).ConfigureAwait(false);
             var written = LibraryWriter.Write(folder, files, cancellationToken);
             _logger.LogInformation(
                 "Hentai: library at {Folder}: {Series} series, {Episodes} episodes; {Written} files written, {Deleted} episodes removed",
@@ -143,6 +148,63 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
             }
 
             return new SyncReport(DateTimeOffset.UtcNow, series.Count, series.Sum(s => s.Episodes.Count), written, created, null);
+        }
+
+        /// <summary>
+        /// Fills in the files to download (subtitles): from the library's folder if they are
+        /// there already, else from their source. Those that cannot be downloaded are left out
+        /// and tried again on the next sync.
+        /// </summary>
+        private async Task<IReadOnlyList<LibraryFile>> DownloadAsync(string folder, IReadOnlyList<LibraryFile> files, CancellationToken cancellationToken)
+        {
+            var result = new LibraryFile?[files.Count];
+            var downloaded = 0;
+            var failed = 0;
+            await Parallel.ForEachAsync(
+                files.Select((file, index) => (file, index)),
+                new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = cancellationToken },
+                async (item, token) =>
+                {
+                    var (file, index) = item;
+                    if (file.DownloadUrl is null)
+                    {
+                        result[index] = file;
+                        return;
+                    }
+
+                    var path = Path.Combine(folder, file.RelativePath);
+                    if (File.Exists(path))
+                    {
+                        result[index] = file with { Content = await File.ReadAllTextAsync(path, token).ConfigureAwait(false), DownloadUrl = null };
+                        return;
+                    }
+
+                    try
+                    {
+                        using var response = await _oppaiStream.FetchMediaAsync(new Uri(file.DownloadUrl), null, token).ConfigureAwait(false);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            result[index] = file with { Content = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false), DownloadUrl = null };
+                            Interlocked.Increment(ref downloaded);
+                            return;
+                        }
+
+                        _logger.LogDebug("Hentai: {Url} answered {Status} for a subtitle", file.DownloadUrl, (int)response.StatusCode);
+                    }
+                    catch (Exception ex) when (ex is OppaiStreamException or HttpRequestException or UriFormatException)
+                    {
+                        _logger.LogDebug("Hentai: could not download the subtitle {Url}: {Error}", file.DownloadUrl, ex.Message);
+                    }
+
+                    Interlocked.Increment(ref failed);
+                }).ConfigureAwait(false);
+
+            if (downloaded > 0 || failed > 0)
+            {
+                _logger.LogInformation("Hentai: downloaded {Downloaded} subtitles, {Failed} failed and are tried again on the next sync", downloaded, failed);
+            }
+
+            return result.OfType<LibraryFile>().ToList();
         }
 
         private static string LibraryName(HentaiSettings config) =>

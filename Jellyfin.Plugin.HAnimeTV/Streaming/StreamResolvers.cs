@@ -1,5 +1,6 @@
 using Jellyfin.Plugin.HAnimeTV.Hanime;
 using Jellyfin.Plugin.HAnimeTV.HentaiHaven;
+using Jellyfin.Plugin.HAnimeTV.OppaiStream;
 using Jellyfin.Plugin.HAnimeTV.Pornhub;
 
 namespace Jellyfin.Plugin.HAnimeTV.Streaming
@@ -137,6 +138,42 @@ namespace Jellyfin.Plugin.HAnimeTV.Streaming
                 return await _client.FetchMediaAsync(url, range, cancellationToken).ConfigureAwait(false);
             }
             catch (HentaiHavenException ex)
+            {
+                throw new StreamUnavailableException(ex.Message, ex);
+            }
+        }
+    }
+
+    public sealed class OppaiStreamResolver : IStreamResolver
+    {
+        private readonly OppaiStreamClient _client;
+
+        public OppaiStreamResolver(OppaiStreamClient client) => _client = client;
+
+        public string Name => "oppai.stream";
+
+        /// <param name="id">The episode page's address, encoded with <see cref="StreamLinks.EncodeId"/>.</param>
+        public async Task<Uri> ResolveAsync(string id, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var path = StreamLinks.DecodeId(id) ?? throw new OppaiStreamException("Not an episode: " + id);
+                var media = await _client.GetMediaAsync(path, cancellationToken).ConfigureAwait(false);
+                return new Uri(media.Streams[0].Url);
+            }
+            catch (OppaiStreamException ex)
+            {
+                throw new StreamUnavailableException(ex.Message, ex);
+            }
+        }
+
+        public async Task<HttpResponseMessage> FetchAsync(Uri url, string? range, CancellationToken cancellationToken)
+        {
+            try
+            {
+                return await _client.FetchMediaAsync(url, range, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OppaiStreamException ex)
             {
                 throw new StreamUnavailableException(ex.Message, ex);
             }
