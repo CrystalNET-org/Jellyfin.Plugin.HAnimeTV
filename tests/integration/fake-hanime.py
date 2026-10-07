@@ -82,14 +82,14 @@ SUBTITLE = "WEBVTT\n\n00:00:01.000 --> 00:00:05.000\nHello from oppai.stream\n"
 
 def oppai_search():
     # As actions/search.php answers the site's search page: cards whose title is split into
-    # the series and the episode's number
+    # the series and the episode's number, the attributes in single quotes
     cards = "".join(f"""
       <div class="in-grid episode-shown" idgt="{i}" folder="{name}" ep="{n}" name="{name}">
         <div class="in-main-gr" just-check="1"><a href="{OPPAI}/watch?e={name} {n}&amp;f={n}">
           <div class="cover-img"><img class="cover-img-in" src="{BASE}/images/cover.jpg"></div>
           <div class="wrap-ep-info"><object><h6 class="gray extra-line">By <a href="{OPPAI}/search?studio=Nur" class="gray">Nur</a></h6></object><h5 class="white bold title-ep"><font class="title inline">{name}</font> <font class="ep inline">{n}</font></h5></div>
         </a></div>
-      </div>""" for i, (name, n) in enumerate(OPPAI_EPISODES))
+      </div>""".replace('"', "'") for i, (name, n) in enumerate(OPPAI_EPISODES))
     return f'<div style="position:absolute;opacity:0;" id="amount-full" amo="{len(OPPAI_EPISODES)}"></div>{cards}'
 
 
