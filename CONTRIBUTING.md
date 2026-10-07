@@ -1,10 +1,11 @@
-# Contributing to the hanime.tv plugin
+# Contributing to the Adult Media plugin
 
 Bug reports, ideas and pull requests are welcome.
 
 - **Bugs:** open an [issue](https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/issues)
   with the steps to reproduce, the Jellyfin and plugin versions, the result of *Test* and the
-  relevant lines from Jellyfin's log (search for `hanime.tv`).
+  relevant lines from Jellyfin's log (search for `hanime.tv`, `Hentai Haven`, `Pornhub` and
+  `Adult Media`).
 - **Pull requests:** against `main`. Keep them focused, and update the README when behaviour
   or settings change.
 
@@ -14,13 +15,18 @@ Bug reports, ideas and pull requests are welcome.
 Jellyfin.Plugin.HAnimeTV/
 ├── Jellyfin.Plugin.HAnimeTV/
 │   ├── Plugin.cs                    # plugin entry, settings page registration
-│   ├── PluginServiceRegistrator.cs  # registers the library sync and the access enforcement
+│   ├── PluginServiceRegistrator.cs  # registers the clients, channels, library sync and access enforcement
 │   ├── Hanime/                      # hanime.tv client: catalog, stream handshake, login, signatures
+│   ├── HentaiHaven/                 # Hentai Haven client: series list and pages, the player's API
+│   ├── Hentai/                      # the merged hentai catalog and its videos
+│   ├── Pornhub/                     # Pornhub client: webmasters API, video pages
+│   ├── Channels/                    # the providers as channels
 │   ├── Library/                     # writes the .strm/NFO files, creates and scans the library
-│   ├── Streaming/                   # HLS proxy: rewrites hanime.tv's playlists, signs their URLs
-│   ├── Access/                      # enforces the user selection through Jellyfin's user policies
-│   ├── Controllers/                 # settings page API (status, test, sync, access) and stream endpoint
-│   ├── Configuration/               # plugin settings
+│   ├── Streaming/                   # stream links, HLS proxy: rewrites playlists, signs their URLs
+│   ├── Access/                      # enforces the user selections through Jellyfin's user policies
+│   ├── Controllers/                 # settings page API (status, test, sync, access) and stream endpoints
+│   ├── Configuration/               # plugin settings, a section per provider
+│   ├── Images/                      # the channels' images
 │   └── Web/config.html              # settings page
 ├── Jellyfin.Plugin.HAnimeTV.Tests/  # unit tests
 ├── tests/integration/               # end-to-end test in the real Jellyfin image (CI)
@@ -34,6 +40,16 @@ Jellyfin.Plugin.HAnimeTV/
 ```
 
 ## How it works
+
+The plugin has two providers, each shown as a channel or (hentai only) a shows library, for
+the users selected for it (`Configuration/ProviderSettings.cs`):
+
+- **Hentai** merges hanime.tv's and Hentai Haven's catalogs (`Hentai/HentaiCatalog.cs`): series
+  are matched by name without case, spaces and punctuation, and an episode both sites have comes
+  from hanime.tv.
+- **Pornhub** is a channel over Pornhub's public webmasters API.
+
+### hanime.tv
 
 hanime.tv has no public API; the plugin does what its site does:
 
@@ -50,18 +66,48 @@ hanime.tv has no public API; the plugin does what its site does:
 
 All of that is in `Hanime/`; when hanime.tv changes something, that is where to look.
 
+### Hentai Haven
+
+Hentai Haven runs WordPress with the Madara theme (series are "manga", episodes "chapters") and
+its `player-logic` plugin (`HentaiHaven/`):
+
+- **Catalog:** the search for nothing, newest first (`/?s=&post_type=wp-manga&m_orderby=latest`,
+  then `/page/2/…` until a page is missing), lists every series with its latest episodes. Each
+  series' page has its metadata and episodes (`li.wp-manga-chapter`; if the theme loads them
+  later, `<series>/ajax/chapters/` or `admin-ajax.php?action=manga_get_chapters`). Series pages
+  are kept on disk (`<data>/adult-media/hentaihaven.json`) and read again when the list shows
+  new episodes, or after 30 days.
+- **Streams:** the episode page's player (`.player_logic_item iframe`) holds two keys (`en`,
+  `iv`); `POST /wp-content/plugins/player-logic/api.php` with `action=zarat_get_data_player_ajax`,
+  `a=<en>`, `b=<iv>` answers with the HLS sources.
+
+If Hentai Haven cannot be read and was never read before, the sync leaves it out rather than
+failing; once read, its last catalog is used instead.
+
+### Pornhub
+
+The catalog comes from the webmasters API (`/webmasters/search`, `/webmasters/categories`); the
+streams from the video page's `flashvars` (`mediaDefinitions`), as yt-dlp reads them, with the
+age cookies. Its CDN needs `Origin` and `Referer`, which Jellyfin does not pass on to ffmpeg, so
+the streams go through the plugin like the others. Videos with only MP4 files are served as
+files, with ranges.
+
+### Library and streams
+
 The sync (`Library/LibrarySync.cs`, on startup, after saving the settings and every 6 hours)
-groups the catalog into series by name (`LibraryLayout`), writes a `.strm` and an NFO file per
+groups the merged catalog into series (`LibraryLayout`), writes a `.strm` and an NFO file per
 episode and a `tvshow.nfo` per series (`LibraryWriter`, only what changed), creates the shows
-library if needed, applies the user selection to the users' policies (`Access/`) and has
+library if needed, applies the user selections to the users' policies (`Access/`) and has
 Jellyfin scan the library.
 
-The `.strm` files hold `<server>/HanimeTV/Stream/<slug>/index.m3u8?token=…`
-(`Controllers/StreamController.cs`): it does the handshake (cached for 10 minutes) and serves
-the stream's playlist with every URI rewritten to `proxy/<token>/<signature>/<url>/<file name>`
-(`Streaming/HlsProxy.cs`), which fetches it from hanime.tv with the browser headers. Links end
-with the upstream file's name because ffmpeg only reads HLS segments whose URLs end with a media
-extension; they are relative so they work behind any address or base URL.
+The `.strm` files and channel videos hold `<server>/HanimeTV/<source>/<id>/index.m3u8?token=…`
+(`Controllers/StreamControllers.cs`, with `Stream` for hanime.tv, `HentaiHaven` and `Pornhub`):
+it asks the source for the stream (cached for 10 minutes) and serves its playlist with every URI
+rewritten to `proxy/<token>/<signature>/<url>/<file name>` (`Streaming/HlsProxy.cs`), which
+fetches it with the source's headers. Links end with the upstream file's name because ffmpeg
+only reads HLS segments whose URLs end with a media extension; they are relative so they work
+behind any address or base URL. A source's file instead of a playlist is served as
+`video.mp4`, with ranges.
 
 ## Building
 
@@ -81,15 +127,19 @@ dotnet test Jellyfin.Plugin.HAnimeTV.Tests
 ```
 
 The integration test (`.woodpecker/integration.yaml`) runs the plugin in the official Jellyfin
-12.1 and 12.2 images against `tests/integration/fake-hanime.py`, which stands in for hanime.tv: it checks
-the plugin's signatures and sealed handshake like hanime.tv and serves real HLS streams.
-`tests/integration/check.py` then creates users and checks through Jellyfin's API that the
-plugin writes the files and creates the library, that Jellyfin's scan makes series and episodes
+12.1 and 12.2 images against `tests/integration/fake-hanime.py`, which stands in for hanime.tv,
+Hentai Haven and Pornhub: it checks the plugin's signatures, sealed handshake, player keys and
+headers like the sites do and serves real HLS streams and an MP4 file. The plugin starts with
+settings of version 0.1. `tests/integration/check.py` then creates users and checks through
+Jellyfin's API that the settings move into the hentai provider, that the plugin merges both
+catalogs into files and creates the library, that Jellyfin's scan makes series and episodes
 with the NFO metadata, that only the selected user sees, lists and plays them, administrators
 included, that the users' policies follow the selection (also after an administrator re-grants
-all libraries and for new users), that an episode plays through Jellyfin's remux and from its
-stream link without a login (as browsers do), that stream links without the token or with
-forged URLs are refused, that hidden genres leave the library, and that the plugin logs no errors.
+all libraries and for new users), that episodes of both sites play through Jellyfin's remux and
+from their stream links without a login (as browsers do), that stream links without the token or
+with forged URLs are refused, that hidden genres leave the library, that the Pornhub channel
+shows only for its user and plays (HLS, and MP4 with ranges), that the hentai provider in
+channel mode leaves the library for a channel, and that the plugin logs no errors.
 Releases depend on it. To run it elsewhere, follow the steps of the pipeline: `prepare.sh`,
 `fake-hanime.py` (needs the `cryptography` package) reachable as `fake-hanime:8080`,
 `start-jellyfin.sh` reachable as `jellyfin:8096`, then `check.py`; all of them must see `ROOT`
@@ -114,8 +164,8 @@ The pipelines in `.woodpecker/` run on [Woodpecker CI](https://woodpecker-ci.org
 
 ## Releases
 
-Push a tag such as `0.1.0`. CI builds the plugin as version `0.1.0.0`, publishes
-`hanime.tv_0.1.0.0.zip` (the DLL, `meta.json` and the plugin image) as a GitHub release, and
+Push a tag such as `0.2.0`. CI builds the plugin as version `0.2.0.0`, publishes
+`hanime.tv_0.2.0.0.zip` (named after the plugin's first name) (the DLL, `meta.json` and the plugin image) as a GitHub release, and
 adds the release to `manifest.json` on `main`, with the commit titles since the previous release
 as its changelog. That commit is marked `[CI SKIP]`. Jellyfin then offers the update in its
 plugin catalog.

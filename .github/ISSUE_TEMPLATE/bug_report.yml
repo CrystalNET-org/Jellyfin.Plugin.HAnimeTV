@@ -6,8 +6,8 @@ body:
     attributes:
       value: |
         Thanks for reporting! Please click **Test** on the plugin's settings page first: it shows
-        whether hanime.tv's catalog and streams can be reached from your server.
-        Security problems, e.g. users who are not selected reaching the channel: please report them
+        whether the sites' catalogs and streams can be reached from your server.
+        Security problems, e.g. users who are not selected reaching a channel or library: please report them
         privately, see [SECURITY.md](https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/blob/main/SECURITY.md).
   - type: textarea
     id: what-happened
@@ -52,6 +52,6 @@ body:
     attributes:
       label: Logs
       description: |
-        The relevant lines from Jellyfin's log (search for `hanime.tv` and `HAnimeTV`).
+        The relevant lines from Jellyfin's log (search for `hanime.tv`, `Hentai Haven`, `Pornhub`, `Adult Media` and `HAnimeTV`).
         Remove your hanime.tv account's email before posting.
       render: text

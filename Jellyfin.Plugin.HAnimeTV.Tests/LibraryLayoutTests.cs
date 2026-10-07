@@ -1,6 +1,7 @@
 using System.Xml.Linq;
 using Jellyfin.Plugin.HAnimeTV.Configuration;
 using Jellyfin.Plugin.HAnimeTV.Hanime;
+using Jellyfin.Plugin.HAnimeTV.Hentai;
 using Jellyfin.Plugin.HAnimeTV.Library;
 using Xunit;
 
@@ -8,11 +9,11 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
 {
     public class LibraryLayoutTests
     {
-        private readonly PluginConfiguration _config = new();
+        private readonly HentaiSettings _config = new();
 
-        private static HanimeVideo Video(string slug, string name, int released, params string[] tags) => new()
+        private static HentaiVideo Video(string slug, string name, int released, params string[] tags) => new()
         {
-            Slug = slug,
+            Id = slug,
             Name = name,
             Brand = "Studio",
             Tags = tags,
@@ -26,8 +27,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             IsCensored = tags.Contains("censored"),
         };
 
-        private IReadOnlyList<LibraryFile> Build(params HanimeVideo[] videos) =>
-            LibraryLayout.Build(videos, _config, slug => "http://jellyfin:8096/HanimeTV/Stream/" + slug + "/index.m3u8?token=t");
+        private IReadOnlyList<LibraryFile> Build(params HentaiVideo[] videos) =>
+            LibraryLayout.Build(videos, _config, video => "http://jellyfin:8096/HanimeTV/Stream/" + video.Id + "/index.m3u8?token=t");
 
         private static Dictionary<string, string> ByPath(IReadOnlyList<LibraryFile> files) =>
             files.ToDictionary(f => f.RelativePath.Replace('\\', '/'), f => f.Content);
@@ -87,7 +88,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
             // "Title" and "Title 1" both claim episode 1
             var series = Assert.Single(LibraryLayout.Series([Video("b", "Title 1", 2012), Video("a", "Title", 2010), Video("c", "Title 2", 2013)]));
 
-            Assert.Equal(new[] { ("a", 1), ("b", 2), ("c", 3) }, series.Episodes.Select(e => (e.Video.Slug, e.Number)));
+            Assert.Equal(new[] { ("a", 1), ("b", 2), ("c", 3) }, series.Episodes.Select(e => (e.Video.Id, e.Number)));
         }
 
         [Fact]
@@ -111,10 +112,21 @@ namespace Jellyfin.Plugin.HAnimeTV.Tests
         [Fact]
         public void SeriesWithTheSameFileName_GetTheirOwnFolders()
         {
-            var files = ByPath(Build(Video("a", "What?", 2010), Video("b", "What", 2011)));
+            // File names are cut at 120 characters
+            var name = new string('x', 120);
+            var files = ByPath(Build(Video("a", name + " One", 2010), Video("b", name + " Two", 2011)));
 
-            Assert.Contains("What/tvshow.nfo", files.Keys);
-            Assert.Contains("What (2)/tvshow.nfo", files.Keys);
+            Assert.Contains(name + "/tvshow.nfo", files.Keys);
+            Assert.Contains(name + " (2)/tvshow.nfo", files.Keys);
+        }
+
+        [Fact]
+        public void SeriesNames_AreComparedWithoutCaseAndPunctuation()
+        {
+            var series = LibraryLayout.Series([Video("a", "What?", 2010), Video("b", "what", 2011)]);
+
+            var only = Assert.Single(series);
+            Assert.Equal([1, 2], only.Episodes.Select(e => e.Number));
         }
     }
 }

@@ -65,7 +65,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "hanime.tv: syncing the library failed");
+                        _logger.LogError(ex, "Hentai: syncing the library failed");
                     }
                 },
                 token);

@@ -1,9 +1,9 @@
 [
   {
     "guid": "1029189a-8a81-4419-8b08-78eb68071a0d",
-    "name": "hanime.tv",
-    "description": "hanime.tv as a shows library with series and metadata, for selected users only.",
-    "overview": "hanime.tv's catalog as a Jellyfin shows library: series and episodes with descriptions, genres, studios, dates and images, played through Jellyfin. Only the users you select see it.",
+    "name": "Adult Media",
+    "description": "Hentai (hanime.tv and Hentai Haven) and Pornhub as channels or shows libraries, for selected users only.",
+    "overview": "Adult media providers in Jellyfin: hanime.tv and Hentai Haven merged into one hentai shows library or channel, with series, episodes and metadata, and Pornhub as a channel. Played through Jellyfin; each provider only for the users you select.",
     "owner": "CrystalNET-org",
     "category": "Anime",
     "imageUrl": "https://raw.githubusercontent.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/main/images/thumb.png",

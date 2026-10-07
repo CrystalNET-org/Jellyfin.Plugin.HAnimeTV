@@ -5,20 +5,20 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.HAnimeTV.Access
 {
     /// <summary>
-    /// New users get access to all libraries: takes the hanime.tv library away again unless they were selected.
+    /// New users get access to all channels and libraries: takes the providers' away again unless they were selected.
     /// </summary>
     public sealed class UserCreatedConsumer : IEventConsumer<UserCreatedEventArgs>
     {
         /// <summary>
         /// The dashboard saves a new user's access right after creating the user, which
-        /// grants all libraries again: check once more after that.
+        /// grants all channels and libraries again: check once more after that.
         /// </summary>
         private static readonly TimeSpan Recheck = TimeSpan.FromSeconds(30);
 
-        private readonly LibraryAccessSync _sync;
+        private readonly AccessSync _sync;
         private readonly ILogger<UserCreatedConsumer> _logger;
 
-        public UserCreatedConsumer(LibraryAccessSync sync, ILogger<UserCreatedConsumer> logger)
+        public UserCreatedConsumer(AccessSync sync, ILogger<UserCreatedConsumer> logger)
         {
             _sync = sync;
             _logger = logger;
@@ -37,7 +37,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Access
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "hanime.tv: checking the library access of a new user failed");
+                    _logger.LogError(ex, "Adult Media: checking the access of a new user failed");
                 }
             });
         }

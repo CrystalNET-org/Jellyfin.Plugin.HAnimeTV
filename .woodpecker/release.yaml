@@ -28,7 +28,7 @@ steps:
       - cp images/thumb.png artifacts/package/
       - TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       - >-
-        printf '{"guid":"1029189a-8a81-4419-8b08-78eb68071a0d","name":"hanime.tv","description":"hanime.tv as a shows library with series and metadata, for selected users only.","overview":"","owner":"CrystalNET-org","category":"Anime","version":"%s","targetAbi":"%s","timestamp":"%s","changelog":"","status":"Active","autoUpdate":true,"imagePath":"thumb.png","assemblies":[]}\n'
+        printf '{"guid":"1029189a-8a81-4419-8b08-78eb68071a0d","name":"Adult Media","description":"Hentai (hanime.tv and Hentai Haven) and Pornhub as channels or shows libraries, for selected users only.","overview":"","owner":"CrystalNET-org","category":"Anime","version":"%s","targetAbi":"%s","timestamp":"%s","changelog":"","status":"Active","autoUpdate":true,"imagePath":"thumb.png","assemblies":[]}\n'
         "$VERSION" "$TARGET_ABI" "$TIMESTAMP" > artifacts/package/meta.json
       - cd artifacts/package && zip -j ../hanime.tv_$VERSION.zip ./* && cd ../..
       - md5sum artifacts/hanime.tv_$VERSION.zip | cut -d' ' -f1 > artifacts/checksum

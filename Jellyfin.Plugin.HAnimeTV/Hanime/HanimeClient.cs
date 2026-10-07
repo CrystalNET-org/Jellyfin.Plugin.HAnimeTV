@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Jellyfin.Plugin.HAnimeTV.Configuration;
+using Jellyfin.Plugin.HAnimeTV.Hentai;
 using MediaBrowser.Common.Net;
 using Microsoft.Extensions.Logging;
 
@@ -28,7 +29,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
 
         private readonly IHttpClientFactory _httpClientFactory;
-        private readonly Func<PluginConfiguration> _configuration;
+        private readonly Func<HentaiSettings> _configuration;
         private readonly ILogger _logger;
         private readonly TimeProvider _time;
         private readonly SemaphoreSlim _catalogLock = new(1, 1);
@@ -45,7 +46,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
 
         private static readonly TimeSpan StreamCacheTime = TimeSpan.FromMinutes(10);
 
-        public HanimeClient(IHttpClientFactory httpClientFactory, Func<PluginConfiguration> configuration, ILogger logger, TimeProvider? time = null)
+        public HanimeClient(IHttpClientFactory httpClientFactory, Func<HentaiSettings> configuration, ILogger logger, TimeProvider? time = null)
         {
             _httpClientFactory = httpClientFactory;
             _configuration = configuration;
@@ -75,11 +76,11 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         public string? AccountStatus { get; private set; }
 
         /// <summary>
-        /// Gets the catalog. It is downloaded at most once per <see cref="PluginConfiguration.CatalogCacheHours"/>;
+        /// Gets the catalog. It is downloaded at most once per <see cref="HentaiSettings.CatalogCacheHours"/>;
         /// if a download fails, the last catalog is used.
         /// </summary>
         /// <exception cref="HanimeException">No catalog could be downloaded.</exception>
-        public async Task<IReadOnlyList<HanimeVideo>> GetCatalogAsync(CancellationToken cancellationToken)
+        public async Task<IReadOnlyList<HentaiVideo>> GetCatalogAsync(CancellationToken cancellationToken)
         {
             var config = _configuration();
             var maxAge = TimeSpan.FromHours(Math.Max(1, config.CatalogCacheHours));
@@ -126,7 +127,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         /// <summary>
         /// Downloads the catalog, bypassing the cache.
         /// </summary>
-        internal async Task<IReadOnlyList<HanimeVideo>> DownloadCatalogAsync(string url, CancellationToken cancellationToken)
+        internal async Task<IReadOnlyList<HentaiVideo>> DownloadCatalogAsync(string url, CancellationToken cancellationToken)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             AddAppHeaders(request, sessionToken: string.Empty);
@@ -144,7 +145,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         /// Reads the catalog: an array of videos, or an object whose "data" (current responses,
         /// next to "ads") or "hits" (older ones) is that array or a string containing it.
         /// </summary>
-        internal static IReadOnlyList<HanimeVideo> ParseCatalog(JsonElement root)
+        internal static IReadOnlyList<HentaiVideo> ParseCatalog(JsonElement root)
         {
             if (root.ValueKind == JsonValueKind.Object)
             {
@@ -173,11 +174,11 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
                 throw new HanimeException("The catalog has an unknown format: " + fields);
             }
 
-            var videos = new List<HanimeVideo>();
+            var videos = new List<HentaiVideo>();
             var slugs = new HashSet<string>(StringComparer.Ordinal);
             foreach (var item in root.EnumerateArray())
             {
-                if (HanimeVideo.FromJson(item) is { } video && slugs.Add(video.Slug))
+                if (HentaiVideo.FromHanime(item) is { } video && slugs.Add(video.Id))
                 {
                     videos.Add(video);
                 }
@@ -211,9 +212,14 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         /// Fetches a stream's playlist, segment or key with the headers of hanime.tv's player.
         /// The caller disposes the response.
         /// </summary>
-        public async Task<HttpResponseMessage> FetchMediaAsync(Uri url, CancellationToken cancellationToken)
+        public async Task<HttpResponseMessage> FetchMediaAsync(Uri url, string? range, CancellationToken cancellationToken)
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (!string.IsNullOrEmpty(range))
+            {
+                request.Headers.TryAddWithoutValidation("Range", range);
+            }
+
             request.Headers.UserAgent.Clear();
             request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
             request.Headers.TryAddWithoutValidation("Origin", Origin);
@@ -329,7 +335,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         /// Gets the session token of the configured account, logging in if needed; empty
         /// without an account or if the login fails (the streams then are those of a guest).
         /// </summary>
-        private async Task<string> GetSessionTokenAsync(PluginConfiguration config, CancellationToken cancellationToken)
+        private async Task<string> GetSessionTokenAsync(HentaiSettings config, CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(config.Email) || string.IsNullOrEmpty(config.Password))
             {
@@ -378,7 +384,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
             }
         }
 
-        private async Task<Session> LoginAsync(PluginConfiguration config, string credentials, CancellationToken cancellationToken)
+        private async Task<Session> LoginAsync(HentaiSettings config, string credentials, CancellationToken cancellationToken)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, config.LoginUrl)
             {
@@ -481,7 +487,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Hanime
         [GeneratedRegex(@"\d+")]
         private static partial Regex Digits();
 
-        private sealed record Catalog(IReadOnlyList<HanimeVideo> Videos, string Source, DateTimeOffset FetchedAt);
+        private sealed record Catalog(IReadOnlyList<HentaiVideo> Videos, string Source, DateTimeOffset FetchedAt);
 
         private sealed record Session(string Token, string Credentials, DateTimeOffset ExpiresAt, bool Premium);
     }

@@ -1,9 +1,8 @@
-using System.Security.Cryptography;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.HAnimeTV.Access;
 using Jellyfin.Plugin.HAnimeTV.Configuration;
-using Jellyfin.Plugin.HAnimeTV.Hanime;
-using MediaBrowser.Controller;
+using Jellyfin.Plugin.HAnimeTV.Hentai;
+using Jellyfin.Plugin.HAnimeTV.Streaming;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Configuration;
@@ -16,39 +15,45 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
     /// <summary>
     /// The outcome of a sync.
     /// </summary>
-    public sealed record SyncReport(DateTimeOffset Time, int Series, int Episodes, WriteResult? Files, bool LibraryCreated, string? Error);
+    public sealed record SyncReport(DateTimeOffset Time, int Series, int Episodes, WriteResult? Files, bool LibraryCreated, string? Error)
+    {
+        /// <summary>
+        /// Gets a value indicating whether the hentai provider is not in library mode, so nothing was written.
+        /// </summary>
+        public bool Inactive { get; init; }
+    }
 
     /// <summary>
-    /// Writes hanime.tv's catalog into the library's folder, creates the Jellyfin library for
+    /// Writes the merged hentai catalog (hanime.tv and Hentai Haven) into the library's folder, creates the Jellyfin library for
     /// it, applies the user selection and has Jellyfin scan what changed.
     /// </summary>
     public sealed class LibrarySync
     {
-        private readonly HanimeClient _client;
+        private readonly HentaiCatalog _catalog;
         private readonly ILibraryManager _libraryManager;
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
-        private readonly IServerApplicationHost _applicationHost;
+        private readonly StreamLinks _links;
         private readonly LibraryLocator _locator;
-        private readonly LibraryAccessSync _access;
+        private readonly AccessSync _access;
         private readonly ILogger<LibrarySync> _logger;
         private readonly SemaphoreSlim _lock = new(1, 1);
 
         public LibrarySync(
-            HanimeClient client,
+            HentaiCatalog catalog,
             ILibraryManager libraryManager,
             IProviderManager providerManager,
             IFileSystem fileSystem,
-            IServerApplicationHost applicationHost,
+            StreamLinks links,
             LibraryLocator locator,
-            LibraryAccessSync access,
+            AccessSync access,
             ILogger<LibrarySync> logger)
         {
-            _client = client;
+            _catalog = catalog;
             _libraryManager = libraryManager;
             _providerManager = providerManager;
             _fileSystem = fileSystem;
-            _applicationHost = applicationHost;
+            _links = links;
             _locator = locator;
             _access = access;
             _logger = logger;
@@ -58,12 +63,6 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
         /// Gets the last sync's outcome, or null before the first.
         /// </summary>
         public SyncReport? LastReport { get; private set; }
-
-        /// <summary>
-        /// Gets the address the stream links use: the configured one, or Jellyfin's local one.
-        /// </summary>
-        public string StreamBaseUrl(PluginConfiguration config) =>
-            (string.IsNullOrWhiteSpace(config.StreamBaseUrl) ? _applicationHost.GetApiUrlForLocalAccess(null, false) : config.StreamBaseUrl.Trim()).TrimEnd('/');
 
         public async Task<SyncReport> SyncAsync(CancellationToken cancellationToken)
         {
@@ -75,9 +74,9 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
                 LastReport = report;
                 return report;
             }
-            catch (Exception ex) when (ex is HanimeException or IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
             {
-                _logger.LogError("hanime.tv: library sync failed: {Error}", ex.Message);
+                _logger.LogError("Hentai: library sync failed: {Error}", ex.Message);
                 LastReport = new SyncReport(DateTimeOffset.UtcNow, LastReport?.Series ?? 0, LastReport?.Episodes ?? 0, null, false, ex.Message);
                 return LastReport;
             }
@@ -89,24 +88,29 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
 
         private async Task<SyncReport> SyncInternalAsync(Plugin plugin, CancellationToken cancellationToken)
         {
-            var config = plugin.Configuration;
-            if (string.IsNullOrEmpty(config.StreamToken))
+            var config = plugin.Configuration.Hentai;
+            if (config.Mode != ProviderMode.Library)
             {
-                config.StreamToken = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(24));
-                // Not UpdateConfiguration, which would start another sync
-                plugin.SaveConfiguration(config);
+                // The files stay; the access check hides the library from everyone
+                await _access.SyncAllAsync(cancellationToken).ConfigureAwait(false);
+                if (config.Mode == ProviderMode.Channel)
+                {
+                    // Reads the catalogs ahead of the channel, which would otherwise wait for
+                    // Hentai Haven's first read, minutes long
+                    await _catalog.GetAsync(config, cancellationToken).ConfigureAwait(false);
+                }
+
+                return new SyncReport(DateTimeOffset.UtcNow, 0, 0, null, false, null) { Inactive = true };
             }
 
-            var catalog = await _client.GetCatalogAsync(cancellationToken).ConfigureAwait(false);
-            var baseUrl = StreamBaseUrl(config);
-            var token = Uri.EscapeDataString(config.StreamToken);
+            var catalog = await _catalog.GetAsync(config, cancellationToken).ConfigureAwait(false);
             var series = LibraryLayout.Series(LibraryLayout.Visible(catalog, config));
-            var files = LibraryLayout.Build(catalog, config, slug => $"{baseUrl}/HanimeTV/Stream/{Uri.EscapeDataString(slug)}/index.m3u8?token={token}");
+            var files = LibraryLayout.Build(catalog, config, _links.For);
 
             var folder = _locator.FolderPath;
             var written = LibraryWriter.Write(folder, files, cancellationToken);
             _logger.LogInformation(
-                "hanime.tv: library at {Folder}: {Series} series, {Episodes} episodes; {Written} files written, {Deleted} episodes removed",
+                "Hentai: library at {Folder}: {Series} series, {Episodes} episodes; {Written} files written, {Deleted} episodes removed",
                 folder,
                 series.Count,
                 series.Sum(s => s.Episodes.Count),
@@ -120,7 +124,7 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
                 await _libraryManager.AddVirtualFolder(LibraryName(config), CollectionTypeOptions.tvshows, CreateLibraryOptions(folder), refreshLibrary: false).ConfigureAwait(false);
                 libraryId = _locator.Find();
                 created = libraryId is not null;
-                _logger.LogInformation("hanime.tv: created the library {Name} for {Folder}", LibraryName(config), folder);
+                _logger.LogInformation("Hentai: created the library {Name} for {Folder}", LibraryName(config), folder);
             }
 
             // Before Jellyfin shows the library's contents to anyone
@@ -141,8 +145,8 @@ namespace Jellyfin.Plugin.HAnimeTV.Library
             return new SyncReport(DateTimeOffset.UtcNow, series.Count, series.Sum(s => s.Episodes.Count), written, created, null);
         }
 
-        private static string LibraryName(PluginConfiguration config) =>
-            string.IsNullOrWhiteSpace(config.LibraryName) ? PluginConfiguration.DefaultLibraryName : config.LibraryName.Trim();
+        private static string LibraryName(HentaiSettings config) =>
+            string.IsNullOrWhiteSpace(config.LibraryName) ? HentaiSettings.DefaultLibraryName : config.LibraryName.Trim();
 
         /// <summary>
         /// A shows library that takes its metadata from the plugin's NFO files only, and never
