@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/main/images/thumb.png",
     "versions": [
       {
+        "version": "0.3.2.0",
+        "changelog": "- oppai.stream: read the search's cards in single quotes too",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/releases/download/0.3.2/hanime.tv_0.3.2.0.zip",
+        "checksum": "67785258680612134ecbf402abe4a013",
+        "timestamp": "2026-10-07T19:03:16Z"
+      },
+      {
         "version": "0.3.1.0",
         "changelog": "- oppai.stream: ask for the search as the site does, read its current cards\n- Hentai Haven: get through Cloudflare's bot check\n- Delete versions kept under the old name hanime.tv on start",
         "targetAbi": "12.1.0.0",
