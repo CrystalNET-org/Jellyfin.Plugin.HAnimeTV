@@ -9,6 +9,14 @@
     "imageUrl": "https://raw.githubusercontent.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/main/images/thumb.png",
     "versions": [
       {
+        "version": "0.3.0.0",
+        "changelog": "- Read Hentai Haven as the real hentaihaven.co: Next.js pages, nhplayer videos\n- Describe what Hentai Haven answered when it lists no series\n- Add oppai.stream as a hentai source, with its subtitles",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/releases/download/0.3.0/hanime.tv_0.3.0.0.zip",
+        "checksum": "5062b63aeceff7d44422a75fd7e6b577",
+        "timestamp": "2026-10-07T17:14:21Z"
+      },
+      {
         "version": "0.2.0.0",
         "changelog": "- Rework into Adult Media: hentai from hanime.tv and Hentai Haven, Pornhub",
         "targetAbi": "12.1.0.0",
