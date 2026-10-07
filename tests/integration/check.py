@@ -5,7 +5,7 @@ Expects Jellyfin prepared by prepare.sh, with settings of version 0.1 (hanime.tv
 Creates users, selects them in the plugin's settings and checks, through Jellyfin's API as
 each user, that:
 
-- the plugin loads, moves the old settings into its Hentai provider, merges the catalogs
+- the plugin loads, deletes an older version kept under its old name, moves the old settings into its Hentai provider, merges the catalogs
   of hanime.tv (signed the way hanime.tv expects), oppai.stream and Hentai Haven into .strm,
   NFO and subtitle files (an episode several have from the first of them) and creates the
   shows library,
@@ -27,7 +27,7 @@ each user, that:
 
 Environment: JELLYFIN_URL (default http://jellyfin:8096), LOG_DIR (fake-hanime.py's
 request log), LIBRARY_DIR (the plugin's library folder), JELLYFIN_LOG_DIR (optional, for
-the error check). Exits non-zero on failure.
+the error check), PLUGINS_DIR (optional, Jellyfin's plugins folder). Exits non-zero on failure.
 """
 import base64
 import glob
@@ -43,6 +43,7 @@ BASE = os.environ.get("JELLYFIN_URL", "http://jellyfin:8096").rstrip("/")
 LOG_DIR = os.environ["LOG_DIR"]
 LIBRARY_DIR = os.environ["LIBRARY_DIR"]
 JELLYFIN_LOG_DIR = os.environ.get("JELLYFIN_LOG_DIR")
+PLUGINS_DIR = os.environ.get("PLUGINS_DIR")
 PLUGIN_ID = "1029189A-8A81-4419-8B08-78EB68071A0D"
 failures = []
 
@@ -248,9 +249,12 @@ def main():
 
     print("Plugin and library", flush=True)
     status, plugins = admin.call("GET", "/Plugins")
-    plugin = next((p for p in plugins or [] if norm(p.get("Id", "")) == norm(PLUGIN_ID)), None)
+    plugin = next((p for p in plugins or [] if norm(p.get("Id", "")) == norm(PLUGIN_ID) and p.get("Name") == "Adult Media"), None)
     check(plugin is not None and plugin.get("Status") == "Active", f"the plugin is loaded and active ({plugin and plugin.get('Status')})")
-    check(plugin is not None and plugin.get("Name") == "Adult Media", f"as Adult Media ({plugin and plugin.get('Name')})")
+    check(plugin is not None, f"as Adult Media ({[p.get('Name') for p in plugins or []]})")
+    if PLUGINS_DIR:
+        check(not os.path.exists(os.path.join(PLUGINS_DIR, "hanime.tv_0.0.5.0")),
+              "the older version under the old name hanime.tv was deleted")
     config = admin.call("GET", f"/Plugins/{PLUGIN_ID}/Configuration")[1] or {}
     hentai_config = config.get("Hentai") or {}
     check(hentai_config.get("LibraryPath") == LIBRARY_DIR and hentai_config.get("SearchUrl", "").endswith("/api/v11/search_hvs")

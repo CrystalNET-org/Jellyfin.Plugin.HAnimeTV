@@ -200,6 +200,8 @@ videos through your server, and users who can see a provider can read it.
 - **An episode is in the wrong series, or a series is split in two:** series come from the
   episode names, and the sites may spell a title differently. Edit the episode's metadata in
   Jellyfin, or report the title.
+- **Both *hanime.tv* and *Adult Media* are listed under *Plugins*, and *Status* does not
+  load:** see *Upgrading from 0.1.x*.
 - **Durations show only after playing:** Jellyfin reads a `.strm` episode's duration when it is
   first played, not during scans, so that scans don't hit the sites thousands of times.
 
@@ -209,6 +211,13 @@ The plugin was called *hanime.tv*. It keeps its id, so it updates in place: its 
 into the *Hentai* provider, which stays a shows library for the same users, in the same folder
 and Jellyfin library, now with oppai.stream's and Hentai Haven's videos added (turn them off
 under *Hentai* to keep hanime.tv only). Pornhub is off until you turn it on.
+
+Jellyfin treats the old and the new name as two plugins, so after the update from 0.1.x it may
+load both: *hanime.tv* and *Adult Media* are listed under *Plugins*, and the *Status* section does
+not load. Since 0.3.1 the plugin deletes the old version when it starts; restart Jellyfin once
+more to unload it. With 0.3.0, delete the `hanime.tv_0.1.…` folder in Jellyfin's `plugins`
+directory and restart. Then check each provider's users under *Adult Media* and save: the old
+version's settings page may have cleared them.
 
 ## Disclaimer
 
