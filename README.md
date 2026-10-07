@@ -32,7 +32,7 @@ The user selection, with the access Jellyfin grants each user:
 
 ## Requirements
 
-- **Jellyfin 12.2** on any platform.
+- **Jellyfin 12.1 or newer** on any platform.
 - hanime.tv reachable from the Jellyfin server. hanime.tv refuses many datacenter and VPN
   addresses (HTTP 403 in *Test*); a server at home usually works. Otherwise, point the
   endpoints under *Advanced* at a relay.

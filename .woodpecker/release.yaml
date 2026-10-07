@@ -17,7 +17,7 @@ steps:
           requests:
             ephemeral-storage: 1Gi
     environment:
-      TARGET_ABI: "12.2.0.0"
+      TARGET_ABI: "12.1.0.0"
     commands:
       - apt-get update && apt-get install -y --no-install-recommends zip
       - VERSION="$${CI_COMMIT_TAG#v}.0"
@@ -28,7 +28,7 @@ steps:
       - cp images/thumb.png artifacts/package/
       - TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       - >-
-        printf '{"guid":"1029189a-8a81-4419-8b08-78eb68071a0d","name":"hanime.tv","description":"Browse and play hanime.tv as a channel, for selected users only.","overview":"","owner":"CrystalNET-org","category":"Channels","version":"%s","targetAbi":"%s","timestamp":"%s","changelog":"","status":"Active","autoUpdate":true,"imagePath":"thumb.png","assemblies":[]}\n'
+        printf '{"guid":"1029189a-8a81-4419-8b08-78eb68071a0d","name":"hanime.tv","description":"Browse and play hanime.tv as a channel, for selected users only.","overview":"","owner":"CrystalNET-org","category":"Anime","version":"%s","targetAbi":"%s","timestamp":"%s","changelog":"","status":"Active","autoUpdate":true,"imagePath":"thumb.png","assemblies":[]}\n'
         "$VERSION" "$TARGET_ABI" "$TIMESTAMP" > artifacts/package/meta.json
       - cd artifacts/package && zip -j ../hanime.tv_$VERSION.zip ./* && cd ../..
       - md5sum artifacts/hanime.tv_$VERSION.zip | cut -d' ' -f1 > artifacts/checksum
@@ -59,7 +59,7 @@ steps:
     environment:
       GITHUB_TOKEN:
         from_secret: GITHUB_TOKEN
-      TARGET_ABI: "12.2.0.0"
+      TARGET_ABI: "12.1.0.0"
     commands:
       - apt-get update && apt-get install -y --no-install-recommends git ca-certificates
       - VERSION=$(sed -n 1p artifacts/release-info)

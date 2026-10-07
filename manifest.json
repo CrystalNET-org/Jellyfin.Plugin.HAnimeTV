@@ -5,7 +5,7 @@
     "description": "Browse and play hanime.tv as a channel, for selected users only.",
     "overview": "hanime.tv's catalog as a Jellyfin channel: categories, genres, studios and series, played through Jellyfin. Only the users you select see it.",
     "owner": "CrystalNET-org",
-    "category": "Channels",
+    "category": "Anime",
     "imageUrl": "https://raw.githubusercontent.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/main/images/thumb.png",
     "versions": [
       {

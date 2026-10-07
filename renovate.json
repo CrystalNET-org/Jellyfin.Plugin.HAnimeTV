@@ -6,12 +6,12 @@
   "dependencyDashboard": true,
   "packageRules": [
     {
-      "description": "Jellyfin packages: stay within the targeted plugin ABI (12.2)",
+      "description": "Jellyfin packages: stay on the oldest supported Jellyfin (12.1); a plugin built against newer packages does not load on older servers",
       "matchPackageNames": [
         "Jellyfin.Controller",
         "Jellyfin.Model"
       ],
-      "allowedVersions": "<12.3",
+      "allowedVersions": "<12.2",
       "groupName": "Jellyfin packages"
     },
     {
@@ -27,7 +27,7 @@
       "automergeType": "pr"
     },
     {
-      "description": "CI .NET SDK: stay on the major version of the plugin's target framework (net10.0, required by Jellyfin 12.2); move SDK, target framework and Jellyfin packages together",
+      "description": "CI .NET SDK: stay on the major version of the plugin's target framework (net10.0, required by Jellyfin 12); move SDK, target framework and Jellyfin packages together",
       "matchDatasources": [
         "docker"
       ],

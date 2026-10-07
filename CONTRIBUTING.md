@@ -67,7 +67,7 @@ dotnet test Jellyfin.Plugin.HAnimeTV.Tests
 ```
 
 The integration test (`.woodpecker/integration.yaml`) runs the plugin in the official Jellyfin
-12.2 image against `tests/integration/fake-hanime.py`, which stands in for hanime.tv: it checks
+12.1 and 12.2 images against `tests/integration/fake-hanime.py`, which stands in for hanime.tv: it checks
 the plugin's signatures and sealed handshake like hanime.tv and serves real HLS streams.
 `tests/integration/check.py` then creates users and checks through Jellyfin's API that only the
 selected user sees, lists and plays the channel's videos, administrators included, that the
@@ -78,7 +78,10 @@ Releases depend on it. To run it elsewhere, follow the steps of the pipeline: `p
 `start-jellyfin.sh` reachable as `jellyfin:8096`, then `check.py`; all of them must see `ROOT`
 at the same path.
 
-The plugin builds against the Jellyfin 12.2 packages and targets 12.2 only.
+The plugin builds against the Jellyfin 12.1 packages, the oldest supported version, so one
+build runs on 12.1 and newer: a plugin built against newer packages fails to load on an older
+server (`Could not load file or assembly 'MediaBrowser.Controller, Version=…'`). Raise them
+together with `TARGET_ABI` in `release.yaml` and the first image in `integration.yaml`.
 
 ## CI
 
@@ -87,7 +90,7 @@ The pipelines in `.woodpecker/` run on [Woodpecker CI](https://woodpecker-ci.org
 | Pipeline | Runs on | Does |
 | --- | --- | --- |
 | `build.yaml` | pushes to `main`, pull requests, manual | Builds the plugin and runs the unit tests |
-| `integration.yaml` | pushes to `main`, pull requests, manual, tags | End-to-end test in Jellyfin 12.2 (see above) |
+| `integration.yaml` | pushes to `main`, pull requests, manual, tags | End-to-end test in Jellyfin 12.1 and 12.2 (see above) |
 | `auto_release.yaml` | pushes to `main` that change the `.csproj` | Tags a patch release, after the build and the integration test succeeded |
 | `release.yaml` | tags | Builds the release zip, publishes the GitHub release and updates `manifest.json` |
 | `renovate.yaml` | cron, manual | Runs Renovate |
@@ -102,7 +105,7 @@ plugin catalog.
 
 Jellyfin package updates are released automatically:
 
-1. Renovate opens PRs for Jellyfin package updates within 12.2 and merges patch updates once
+1. Renovate opens PRs for Jellyfin package updates within 12.1 and merges patch updates once
    the build passes.
 2. On `main`, once the build and the integration test succeeded, `auto_release.yaml` pushes the
    next patch tag if the Jellyfin packages differ from the latest release

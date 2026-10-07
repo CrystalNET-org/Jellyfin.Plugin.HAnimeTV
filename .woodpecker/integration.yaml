@@ -1,4 +1,4 @@
-# End-to-end test of the plugin in the real Jellyfin image, against a fake hanime.tv
+# End-to-end test of the plugin in the real Jellyfin images (12.1 and 12.2), against a fake hanime.tv
 # (tests/integration/fake-hanime.py) that checks the plugin's signatures and sealed
 # handshake the way hanime.tv does and serves real HLS streams. CI cannot rely on the
 # real site, which refuses datacenter addresses.
@@ -16,10 +16,13 @@ when:
     branch: ${CI_REPO_DEFAULT_BRANCH}
   - event: [pull_request, manual, tag]
 
-variables:
-  # The Jellyfin release the plugin targets. Not updated by Renovate: move it together
-  # with the Jellyfin packages and TARGET_ABI in release.yaml
-  - &jellyfin harbor.crystalnet.org/dockerhub-proxy/jellyfin/jellyfin:12.2
+matrix:
+  # The oldest Jellyfin release the plugin supports (its packages and TARGET_ABI in
+  # release.yaml) and the latest one. Not updated by Renovate: move the first together
+  # with the Jellyfin packages, replace the second when a newer release comes out
+  JELLYFIN_IMAGE:
+    - harbor.crystalnet.org/dockerhub-proxy/jellyfin/jellyfin:12.1
+    - harbor.crystalnet.org/dockerhub-proxy/jellyfin/jellyfin:12.2
 
 steps:
   - name: build
@@ -35,7 +38,7 @@ steps:
       - dotnet build -c Release Jellyfin.Plugin.HAnimeTV/Jellyfin.Plugin.HAnimeTV.csproj
 
   - name: prepare
-    image: *jellyfin
+    image: ${JELLYFIN_IMAGE}
     backend_options:
       kubernetes:
         resources:
@@ -58,7 +61,7 @@ steps:
       - exec python3 tests/integration/fake-hanime.py
 
   - name: jellyfin
-    image: *jellyfin
+    image: ${JELLYFIN_IMAGE}
     backend_options:
       kubernetes:
         resources:
