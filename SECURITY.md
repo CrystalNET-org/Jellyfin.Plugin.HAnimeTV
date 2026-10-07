@@ -16,21 +16,27 @@ Only the latest release receives security fixes.
 
 ## What the plugin protects
 
-- **Who sees the channel.** Only the users selected in the settings see the channel, its
-  folders and its videos; a new installation selects nobody. With *Enforce through the users'
-  channel access* (on by default), the channel access in every user's policy follows the
-  selection, so Jellyfin itself refuses the videos to everyone else, also by id and for
-  playback. Users who are not selected cannot list the channel's folders, also not by id.
-  Because Jellyfin reports no changes to a user's access, an administrator granting a user all
-  channels in the dashboard takes effect until the plugin's next check (at most 15 minutes,
-  scheduled task *Enforce hanime.tv channel access*).
-- **Parental controls.** The channel and its videos are rated `XXX`, so users with a parental
+- **Who sees the library.** Only the users selected in the settings see the hanime.tv library
+  and its series and episodes; a new installation selects nobody. With *Enforce through the
+  users' library access* (on by default), the library access in every user's policy follows the
+  selection, so Jellyfin itself hides the library from everyone else, also by id and for
+  playback. Because Jellyfin reports no changes to a user's access, an administrator granting
+  a user all libraries in the dashboard takes effect until the plugin's next check (at most 15
+  minutes, scheduled task *Enforce hanime.tv library access*).
+- **Parental controls.** The series and episodes are rated `XXX`, so users with a parental
   rating limit do not see them even if selected.
-- **The plugin's API** (status, test, applying access) is available to administrators only.
+- **Stream links.** The library's `.strm` files point at the plugin's stream endpoint, which
+  players use without a Jellyfin login (Jellyfin's ffmpeg has none). It requires the plugin's
+  random stream token, and only fetches URLs taken from hanime.tv's answers, each signed with
+  that token, so it is no open proxy. Users who can see the library can read the token; with it,
+  anyone can stream hanime.tv's videos through the server, nothing else.
+- **The library folder.** The plugin only writes to an empty folder or one it created (marked
+  by a `.hanime-tv-library` file), as it deletes what it did not write there.
+- **The plugin's API** (status, test, sync, applying access) is available to administrators only.
 - **The hanime.tv account** (optional) is stored in the plugin's settings file on the server,
   like other plugin settings, and is shown to administrators on the settings page. It is only
   sent to the configured login URL.
 
-Streams are fetched by Jellyfin's ffmpeg from hanime.tv (or the configured stream host) and
-served to clients through Jellyfin; clients never contact hanime.tv for playback. Cover
-images are downloaded by Jellyfin from hanime.tv's CDN.
+Streams are fetched from hanime.tv (or the configured stream host) by the plugin and served to
+players through Jellyfin; clients never contact hanime.tv for playback. Cover images are
+downloaded by Jellyfin from hanime.tv's CDN.

@@ -1,11 +1,11 @@
-# End-to-end test of the plugin in the real Jellyfin images (12.1 and 12.2), against a fake hanime.tv
-# (tests/integration/fake-hanime.py) that checks the plugin's signatures and sealed
-# handshake the way hanime.tv does and serves real HLS streams. CI cannot rely on the
-# real site, which refuses datacenter addresses.
+# End-to-end test of the plugin in the real Jellyfin images (12.1 and 12.2), against a
+# fake hanime.tv (tests/integration/fake-hanime.py) that checks the plugin's signatures and
+# sealed handshake the way hanime.tv does and serves real HLS streams. CI cannot rely on
+# the real site, which refuses datacenter addresses.
 #
-# Catches what unit tests cannot: the channel not being registered, Jellyfin showing it
-# or its videos to users who are not selected, policies not following the selection,
-# playback of the streams through Jellyfin's ffmpeg failing. Releases depend on it
+# Catches what unit tests cannot: Jellyfin not reading the library's files as series and
+# episodes, showing them to users who are not selected, policies not following the
+# selection, Jellyfin's ffmpeg or a browser failing to play the stream links. Releases depend on it
 # (auto_release.yaml), so a plugin that breaks this way is not shipped.
 #
 # All steps share the workspace at the same path.
@@ -81,5 +81,5 @@ steps:
     environment:
       JELLYFIN_URL: http://jellyfin:8096
     commands:
-      - export LOG_DIR=$${CI_WORKSPACE}/.integration/logs JELLYFIN_LOG_DIR=$${CI_WORKSPACE}/.integration/config/log
+      - export LOG_DIR=$${CI_WORKSPACE}/.integration/logs LIBRARY_DIR=$${CI_WORKSPACE}/.integration/library JELLYFIN_LOG_DIR=$${CI_WORKSPACE}/.integration/config/log
       - python3 tests/integration/check.py || { echo "--- Jellyfin log"; tail -n 200 .integration/config/log/*.log; exit 1; }

@@ -2,33 +2,36 @@
 
 ![hanime.tv](images/thumb.png)
 
-Browse and play [hanime.tv](https://hanime.tv) in Jellyfin, as a channel that only the users
-you select can see. Its videos are sorted into categories, genres, studios and series, and
-play through Jellyfin like any other video, on every Jellyfin client.
+Watch [hanime.tv](https://hanime.tv) in Jellyfin as a shows library that only the users you
+select can see. Every video becomes an episode of its series, with hanime.tv's description,
+genres, studio, release date and images, and plays through Jellyfin on every client.
 
 ## Features
 
-- **Only for selected users:** the channel is invisible to everyone else, administrators
-  included. Jellyfin itself enforces it: users who are not selected cannot open, list or play
-  the channel's videos, also not by id. A new installation selects nobody.
-- **Browse by category:** recently uploaded, new releases, most viewed, most liked, series A–Z,
-  genres and studios, with covers, descriptions, genres, studios, ratings and release dates.
-- **Plays everywhere:** Jellyfin remuxes hanime.tv's HLS streams (or transcodes them, for
-  clients that need it), so clients never contact hanime.tv.
-- **Filters:** hide genres (e.g. `loli, shota, scat`) and censored videos everywhere.
-- **Parental controls:** the channel and its videos are rated `XXX`.
+- **A real shows library:** series, seasons and episodes, with Next Up, Continue Watching,
+  search, favorites, collections and metadata editing like any other show.
+- **Metadata from hanime.tv:** titles, descriptions, genres, studios, release and upload dates,
+  ratings, covers and thumbnails.
+- **Only for selected users:** the library is invisible to everyone else, administrators
+  included, through Jellyfin's own library access. A new installation selects nobody.
+- **Stays current:** new uploads appear and removed videos disappear on every sync (every 6
+  hours, or on demand).
+- **Plays everywhere:** the plugin serves hanime.tv's streams through Jellyfin, so clients
+  never contact hanime.tv.
+- **Filters:** leave out genres (e.g. `loli, shota, scat`) and censored videos.
+- **Parental controls:** the series and episodes are rated `XXX`.
 - **Optional account:** guests get up to 720p; a premium hanime.tv account adds 1080p.
 - **Updates through the plugin catalog.**
 
 ## Screenshots
 
-The settings page, with a passing test of hanime.tv's catalog and streams:
+The settings page, with the library's state:
 
-![Settings page with the status and a passing test](images/settings.png)
+![Settings page with the library's status](images/settings.png)
 
 The user selection, with the access Jellyfin grants each user:
 
-![User selection: alice and carol are selected and have access, admin and bob do not](images/users.png)
+![User selection: alice and admin are selected and have access, bob does not](images/users.png)
 
 ## Requirements
 
@@ -43,66 +46,110 @@ The user selection, with the access Jellyfin grants each user:
    ```
    https://raw.githubusercontent.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/main/manifest.json
    ```
-2. Install **hanime.tv** from the catalog and restart Jellyfin.
+2. Install **hanime.tv** from the catalog (category *Anime*) and restart Jellyfin.
 3. Open **hanime.tv** in the dashboard sidebar, below *Plugins*, and click **Test**.
-4. Under **Users**, tick the users who may see the channel and save.
+4. Under **Library**, check *Jellyfin address for the stream links* (see below).
+5. Under **Users**, tick the users who may see the library, and save.
 
-The selected users find **hanime.tv** among Jellyfin's channels.
+The plugin then writes the library's files, creates the **hanime.tv** shows library and has
+Jellyfin scan it. With the full catalog (about 3400 videos in 1500 series) the first scan takes
+a few minutes.
 
 To install without the catalog, extract a
 [release](https://github.com/CrystalNET-org/Jellyfin.Plugin.HAnimeTV/releases) zip into a
 folder in Jellyfin's `plugins` directory.
 
+## How it works
+
+On every sync the plugin downloads hanime.tv's catalog and writes it into a folder, laid out
+like any shows library:
+
+```
+hanime.tv/
+└── Ishuzoku Reviewers/
+    ├── tvshow.nfo                        series: title, description, genres, studio, cover
+    └── Season 01/
+        ├── Ishuzoku Reviewers S01E01.strm    the episode's stream link
+        ├── Ishuzoku Reviewers S01E01.nfo     episode: title, description, dates, rating, image
+        └── …
+```
+
+Episodes are grouped into series by their names: "Title 2" is episode 2 of "Title". Only
+changed files are written, so Jellyfin rescans only what changed.
+
+A `.strm` file holds a link to the plugin on your Jellyfin server, not to hanime.tv, because
+hanime.tv's stream links expire and need a browser's headers. When an episode plays, the plugin
+asks hanime.tv for a fresh stream and serves it through Jellyfin. Browsers that can play HLS
+play that link themselves; other clients get it remuxed or transcoded by Jellyfin.
+
 ## Settings
 
 | Section | Setting | Default | Meaning |
 | --- | --- | --- | --- |
-| Users | users | nobody | Who sees the channel and can play its videos. |
-| Users | Enforce through the users' channel access | on | See *How access is enforced*. |
-| Catalog | Hidden genres | none | hanime.tv tags whose videos are never shown, separated by commas. |
-| Catalog | Hide censored videos | off | |
-| Catalog | Videos per folder | 200 | Jellyfin reads a folder's videos at once and keeps an entry for each. Series always list all episodes. |
+| Users | users | nobody | Who sees the library and can play its videos. |
+| Users | Enforce through the users' library access | on | See *How access is enforced*. |
+| Library | Folder | `hanime.tv` in Jellyfin's data directory | Where the files are written. Use an empty folder: the plugin replaces everything in it. |
+| Library | Create the Jellyfin library | on | Creates a shows library for the folder if there is none. |
+| Library | Library name | hanime.tv | |
+| Library | Jellyfin address for the stream links | this page's address | See below. |
+| Catalog | Hidden genres | none | hanime.tv tags whose videos are left out, separated by commas. |
+| Catalog | Leave out censored videos | off | |
 | Catalog | Catalog refresh | 6 hours | How long the catalog is kept before it is downloaded again. |
 | Account | Email, password | empty | Optional hanime.tv account; premium adds 1080p. After a failed login, videos play as a guest and the login is retried after 15 minutes. |
 | Advanced | Catalog, handshake and login URL, stream host | hanime.tv | To use a relay. |
 
+**Jellyfin address for the stream links:** the address in the `.strm` files. Browsers fetch
+these links themselves, so it must be the address your clients open Jellyfin with, e.g.
+`https://jellyfin.example.com` (an `http://` address on an `https://` site is blocked by
+browsers). Jellyfin's own ffmpeg, or its ffmpeg workers, must reach it too. The settings page
+fills in its own address; after changing it, the next sync rewrites the links.
+
 **Test** checks the settings as entered, before saving them: it downloads the catalog and asks
 for the streams of the newest video.
 
+The library the plugin creates reads only the plugin's NFO files: no internet metadata
+providers, no trickplay or chapter images (which would run ffmpeg over every stream). You can
+change that under *Dashboard → Libraries*, e.g. to add the AniDB plugin's metadata.
+
 ## How access is enforced
 
-The plugin's user selection is enforced twice:
+With *Enforce through the users' library access* on, the library access in each user's policy
+(*Dashboard → Users → user → Access*) follows the selection, so Jellyfin itself hides the
+library and its episodes from everyone else, also by id and for playback.
 
-- **The channel** answers only selected users: it is missing from everyone else's channel
-  lists, home screen and *Latest* row, and its folders refuse to list.
-- **Jellyfin's user policies:** with *Enforce through the users' channel access* on, the
-  channel access in each user's policy (*Dashboard → Users → user → Access*) follows the
-  selection. Jellyfin then refuses the channel's videos to the others wherever they come from,
-  e.g. a shared link, and refuses to play them.
-
-The policies are brought in line on startup, when the settings are saved, when a user is
-created, and every 15 minutes (scheduled task *Enforce hanime.tv channel access*); the *Users*
+The policies are brought in line after every sync, when the settings are saved, when a user is
+created, and every 15 minutes (scheduled task *Enforce hanime.tv library access*); the *Users*
 section also has **Apply access now**. A user who is not selected but had *Enable access to all
-channels* keeps every other channel: they are listed one by one instead. Jellyfin reports no
-changes to a user's access, so if an administrator grants such a user all channels again, the
-plugin takes the channel away again at its next check.
+libraries* keeps every other library: they are listed one by one instead. Jellyfin reports no
+changes to a user's access, so if an administrator grants such a user all libraries again, the
+plugin takes the library away again at its next check.
 
 Turning enforcement off leaves the policies as they are.
+
+The stream links carry a secret token of the plugin. It only allows streaming hanime.tv's videos
+through your server, and users who can see the library can read it.
 
 ## Troubleshooting
 
 - **Test fails with HTTP 403:** hanime.tv refuses the server's address, which is common for
   datacenters and VPNs. Run Jellyfin from another network or use a relay (*Advanced*).
-- **A folder is empty:** the catalog could not be downloaded; Jellyfin's log says why (search for
-  `hanime.tv`). Folders are kept by Jellyfin for 3 hours; changing a catalog setting refreshes
-  them.
-- **Playback fails:** click **Test**: hanime.tv may have changed its stream API. Jellyfin's log
-  shows the streams found for each played video (`hanime.tv: 1 streams for …`) and ffmpeg's
-  errors.
-- **Videos are sorted by name:** Jellyfin sorts channel folders by name; sort by *Date added*
-  for the upload date or by *Release date*.
-- **A user still sees the channel:** check the *Users* section; the right column shows what
-  Jellyfin's policy grants. Click **Apply access now**.
+- **The library is empty:** look at the *Status* section: the last sync's error, or whether the
+  Jellyfin library exists. Jellyfin's log has details (search for `hanime.tv`).
+- **Playback fails in the browser but works in apps:** the stream links' address is not
+  reachable from the browser, or is `http://` while Jellyfin is opened with `https://`. Set
+  *Jellyfin address for the stream links* to the address you open Jellyfin with.
+- **Playback fails everywhere:** click **Test**: hanime.tv may have changed its stream API.
+- **An episode is in the wrong series:** series come from the episode names. Edit the episode's
+  metadata in Jellyfin, or report the title.
+- **Durations show only after playing:** Jellyfin reads a `.strm` episode's duration when it is
+  first played, not during scans, so that scans don't hit hanime.tv thousands of times.
+
+## Upgrading from 0.1.x
+
+Versions before 0.2 showed hanime.tv as a channel. The channel is gone; its watched states do
+not carry over. Users who were not selected for the channel had their *channel* access changed
+to a list of all other channels; check *Enable access to all channels* again under
+*Dashboard → Users → Access* if you want them to have it.
 
 ## Disclaimer
 

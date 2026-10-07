@@ -1,12 +1,13 @@
 #!/bin/sh
 # Prepares the integration test: Jellyfin's directories under $ROOT with the plugin
 # installed and pointed at the fake hanime.tv (fake-hanime.py), and that server's media:
-# an HLS stream per video and a cover image.
+# an HLS stream per video and a cover image. The plugin writes its library to $ROOT/library.
 #
 #   ROOT=/path PLUGIN_DLL=…/Jellyfin.Plugin.HAnimeTV.dll sh prepare.sh
 #
 # FFMPEG runs the ffmpeg that writes the media; FAKE_HANIME is the fake server's address
-# as Jellyfin sees it (default http://fake-hanime:8080).
+# as Jellyfin sees it (default http://fake-hanime:8080), STREAM_BASE_URL Jellyfin's own
+# (default http://jellyfin:8096).
 set -eu
 : "${ROOT:?ROOT must be set}" "${PLUGIN_DLL:?PLUGIN_DLL must be set}"
 FFMPEG=${FFMPEG:-/usr/lib/jellyfin-ffmpeg/ffmpeg}
@@ -21,7 +22,8 @@ cat > "$ROOT/config/plugins/configurations/Jellyfin.Plugin.HAnimeTV.xml" <<XML
 <?xml version="1.0" encoding="utf-8"?>
 <PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <EnforceAccess>true</EnforceAccess>
-  <MaxItemsPerFolder>200</MaxItemsPerFolder>
+  <LibraryPath>$ROOT/library</LibraryPath>
+  <StreamBaseUrl>${STREAM_BASE_URL:-http://jellyfin:8096}</StreamBaseUrl>
   <SearchUrl>$FAKE_HANIME/api/v11/search_hvs</SearchUrl>
   <HandshakeUrl>$FAKE_HANIME/api/v11/handshake</HandshakeUrl>
   <LoginUrl>$FAKE_HANIME/rapi/v7/sessions</LoginUrl>
